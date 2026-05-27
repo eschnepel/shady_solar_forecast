@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shady",
+        "description": "Korrigierter Solar-Forecast als Sensoren.\n\nDer Korrekturfaktor wird per linearer Regression (mit Nachbar-Smoothing ±1h bei 50%) aus den letzten N Tagen berechnet – getrennt für bis zu 4 PV-Strings.",
+        "data": {
+          "fc_sensor": "Forecast-Referenz-Sensor (Recorder)",
+          "pv_sensor_1": "PV-String 1 (Pflicht)",
+          "pv_sensor_2": "PV-String 2 (optional)",
+          "pv_sensor_3": "PV-String 3 (optional)",
+          "pv_sensor_4": "PV-String 4 (optional)",
+          "history_days": "Tage Recorder-Historie"
+        }
+      }
+    },
+    "abort": { "single_instance_allowed": "Es ist nur eine Instanz erlaubt." }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Shady – Optionen",
+        "data": {
+          "fc_sensor": "Forecast-Referenz-Sensor (Recorder)",
+          "pv_sensor_1": "PV-String 1 (Pflicht)",
+          "pv_sensor_2": "PV-String 2 (optional)",
+          "pv_sensor_3": "PV-String 3 (optional)",
+          "pv_sensor_4": "PV-String 4 (optional)",
+          "history_days": "Tage Recorder-Historie"
+        }
+      }
+    }
+  }
+}

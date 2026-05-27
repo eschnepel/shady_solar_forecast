@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shady",
+        "description": "Corrected solar forecast as HA sensors.\n\nCorrection is computed via linear regression (with ±1h neighbour smoothing at 50 % weight) over the last N days – separately for up to 4 PV strings.",
+        "data": {
+          "fc_sensor": "Forecast reference sensor (recorder)",
+          "pv_sensor_1": "PV string 1 (required)",
+          "pv_sensor_2": "PV string 2 (optional)",
+          "pv_sensor_3": "PV string 3 (optional)",
+          "pv_sensor_4": "PV string 4 (optional)",
+          "history_days": "Days of recorder history"
+        }
+      }
+    },
+    "abort": { "single_instance_allowed": "Only one instance is allowed." }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Shady – Options",
+        "data": {
+          "fc_sensor": "Forecast reference sensor (recorder)",
+          "pv_sensor_1": "PV string 1 (required)",
+          "pv_sensor_2": "PV string 2 (optional)",
+          "pv_sensor_3": "PV string 3 (optional)",
+          "pv_sensor_4": "PV string 4 (optional)",
+          "history_days": "Days of recorder history"
+        }
+      }
+    }
+  }
+}
