@@ -276,7 +276,22 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     async def _fetch_statistics(
         self, statistic_ids: list[str], start: datetime
     ) -> dict[str, list[dict]]:
-        """Fetch hourly means for all statistic_ids in one recorder call."""
+        """Fetch hourly means for all statistic_ids in one recorder call.
+
+        Handles both object-style rows (r.mean, r.start) and dict-style rows
+        (r["mean"], r["start"]) depending on the HA version.
+        """
+        def _mean(r: Any) -> float | None:
+            return r.get("mean") if isinstance(r, dict) else getattr(r, "mean", None)
+
+        def _start(r: Any) -> datetime:
+            v = r.get("start") if isinstance(r, dict) else getattr(r, "start", None)
+            if isinstance(v, datetime):
+                return v
+            if isinstance(v, str):
+                return datetime.fromisoformat(v)
+            raise ValueError(f"Cannot parse start value: {v!r}")
+
         def _query() -> dict[str, list[dict]]:
             result = statistics_during_period(
                 self.hass,
@@ -289,9 +304,9 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             )
             return {
                 sid: [
-                    {"start": r.start.isoformat(), "mean": r.mean}
+                    {"start": _start(r), "mean": _mean(r)}
                     for r in rows
-                    if r.mean is not None
+                    if _mean(r) is not None
                 ]
                 for sid, rows in result.items()
             }
@@ -307,9 +322,13 @@ def _build_regression_model(
     fc_rows: list[dict],
     pv_rows: list[dict],
 ) -> tuple[float, float] | None:
-    """WLS: pv ~ slope * fc + intercept, with ±1h neighbour smoothing at 50%."""
-    fc_map: dict[str, float] = {r["start"]: r["mean"] for r in fc_rows}
-    pv_map: dict[str, float] = {r["start"]: r["mean"] for r in pv_rows}
+    """WLS: pv ~ slope * fc + intercept, with ±1h neighbour smoothing at 50%.
+
+    Row dicts contain {"start": datetime, "mean": float}.
+    """
+    # Keys are datetime objects – direct arithmetic, no re-parsing needed
+    fc_map: dict[datetime, float] = {r["start"]: r["mean"] for r in fc_rows}
+    pv_map: dict[datetime, float] = {r["start"]: r["mean"] for r in pv_rows}
 
     common = sorted(set(fc_map) & set(pv_map))
     if len(common) < 2:
@@ -319,21 +338,16 @@ def _build_regression_model(
     ys: list[float] = []
     ws: list[float] = []
 
-    for ts in common:
-        xs.append(fc_map[ts])
-        ys.append(pv_map[ts])
+    for dt in common:
+        xs.append(fc_map[dt])
+        ys.append(pv_map[dt])
         ws.append(1.0)
 
-        try:
-            dt = datetime.fromisoformat(ts)
-        except ValueError:
-            continue
-
         for delta_h in (-1, +1):
-            nb_ts = (dt + timedelta(hours=delta_h)).isoformat()
-            if nb_ts in fc_map and nb_ts in pv_map:
-                xs.append(fc_map[nb_ts])
-                ys.append(pv_map[nb_ts])
+            nb = dt + timedelta(hours=delta_h)
+            if nb in fc_map and nb in pv_map:
+                xs.append(fc_map[nb])
+                ys.append(pv_map[nb])
                 ws.append(_NEIGHBOUR_WEIGHT)
 
     if len(xs) < 2:
