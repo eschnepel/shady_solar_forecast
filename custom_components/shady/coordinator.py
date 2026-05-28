@@ -254,29 +254,40 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         string_forecasts: dict[str, dict[str, float]] = {}
 
         for pv_sensor in pv_sensors:
-            pv_rows = stats.get(pv_sensor, [])
-            model   = _build_regression_model(fc_rows, pv_rows)
-            if model is None:
+            pv_rows  = stats.get(pv_sensor, [])
+            models   = _build_hourly_models(fc_rows, pv_rows)
+            if not models:
                 _LOGGER.warning(
-                    "No regression model for %s (fc_rows=%d, pv_rows=%d, common=%d) – skipping",
+                    "No hourly models for %s (fc_rows=%d, pv_rows=%d) – skipping",
                     pv_sensor, len(fc_rows), len(pv_rows),
-                    len(set(r["start"] for r in fc_rows) & set(r["start"] for r in pv_rows)),
                 )
                 continue
-            slope, intercept = model
+
             _LOGGER.info(
-                "Regression model for %s: slope=%.6f  intercept=%.4f  "
+                "Hourly models for %s: %d hour-buckets fitted  "
                 "fc_rows=%d  pv_rows=%d  "
                 "fc_range=[%.1f, %.1f]  pv_range=[%.1f, %.1f]",
-                pv_sensor, slope, intercept,
+                pv_sensor, len(models),
                 len(fc_rows), len(pv_rows),
                 min((r["mean"] for r in fc_rows), default=0),
                 max((r["mean"] for r in fc_rows), default=0),
                 min((r["mean"] for r in pv_rows), default=0),
                 max((r["mean"] for r in pv_rows), default=0),
             )
+            # Log per-hour slopes for diagnostic visibility
+            for h in sorted(models):
+                s, i = models[h]
+                _LOGGER.debug("  hour %02d: slope=%.4f  intercept=%.4f", h, s, i)
+
             string_slots: dict[str, float] = {}
             for iso_ts, raw_wh in raw.items():
+                try:
+                    hour = datetime.fromisoformat(iso_ts).hour
+                except ValueError:
+                    continue
+                if hour not in models:
+                    continue
+                slope, intercept = models[hour]
                 predicted = round(max(0.0, slope * raw_wh + intercept), 1)
                 string_slots[iso_ts]  = predicted
                 combined[iso_ts]      = round(combined.get(iso_ts, 0.0) + predicted, 1)
@@ -285,6 +296,14 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         if not combined:
             _LOGGER.debug("All string models failed – falling back to raw forecast")
             return dict(raw), {}
+
+        # Summary: compare a midday raw slot vs combined corrected
+        midday_raw      = {ts: wh for ts, wh in raw.items()      if "T12:" in ts or "T11:" in ts}
+        midday_combined = {ts: wh for ts, wh in combined.items() if "T12:" in ts or "T11:" in ts}
+        if midday_raw and midday_combined:
+            r = next(iter(midday_raw.values()))
+            p = next(iter(midday_combined.values()))
+            _LOGGER.info("  → Combined midday slot: raw=%.1f Wh  corrected=%.1f Wh", r, p)
 
         return dict(sorted(combined.items())), string_forecasts
 
@@ -335,69 +354,84 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
 # Linear regression helpers
 # ---------------------------------------------------------------------------
 
-def _build_regression_model(
+# Type alias: hour-of-day (0–23) → (slope, intercept)
+HourlyModel = dict[int, tuple[float, float]]
+
+
+def _build_hourly_models(
     fc_rows: list[dict],
     pv_rows: list[dict],
-) -> tuple[float, float] | None:
-    """WLS: pv ~ slope * fc + intercept, with ±1h neighbour smoothing at 50%.
+) -> HourlyModel:
+    """Build one WLS model per hour-of-day (0–23).
 
-    Row dicts contain {"start": datetime, "mean": float}.
+    For each hour H a separate regression is fitted:
+        pv_actual(H) ~ slope(H) * fc_reference(H) + intercept(H)
 
-    Both sides are Z-score normalised before fitting so the regression is
-    independent of unit differences between the forecast reference sensor
-    (e.g. W) and the raw energy forecast (Wh).  Slope and intercept are
-    then back-transformed to operate directly on raw Wh values.
+    This captures shading effects that are specific to certain times of day
+    (e.g. a chimney shadow that only affects string 2 between 09:00–11:00).
+
+    Neighbour smoothing: observations from H-1 and H+1 are added at 50 %
+    weight so hours with few training samples borrow strength from adjacent
+    hours.
+
+    Z-score normalisation per hour bucket makes the regression unit-agnostic
+    (fc_sensor in W, raw forecast in Wh).
     """
     fc_map: dict[datetime, float] = {r["start"]: r["mean"] for r in fc_rows}
     pv_map: dict[datetime, float] = {r["start"]: r["mean"] for r in pv_rows}
 
     common = sorted(set(fc_map) & set(pv_map))
-    if len(common) < 2:
-        return None
+    if not common:
+        return {}
 
-    xs: list[float] = []
-    ys: list[float] = []
-    ws: list[float] = []
+    # Group observations by hour-of-day
+    from collections import defaultdict
+    # {hour: [(fc_val, pv_val, weight), ...]}
+    buckets: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
 
     for dt in common:
-        xs.append(fc_map[dt])
-        ys.append(pv_map[dt])
-        ws.append(1.0)
-
+        h = dt.hour
+        buckets[h].append((fc_map[dt], pv_map[dt], 1.0))
+        # Neighbours contribute to adjacent buckets at half weight
         for delta_h in (-1, +1):
             nb = dt + timedelta(hours=delta_h)
             if nb in fc_map and nb in pv_map:
-                xs.append(fc_map[nb])
-                ys.append(pv_map[nb])
-                ws.append(_NEIGHBOUR_WEIGHT)
+                buckets[nb.hour].append((fc_map[nb], pv_map[nb], _NEIGHBOUR_WEIGHT))
 
-    if len(xs) < 2:
-        return None
+    models: HourlyModel = {}
+    for hour, obs in buckets.items():
+        if len(obs) < 2:
+            continue
+        xs = [o[0] for o in obs]
+        ys = [o[1] for o in obs]
+        ws = [o[2] for o in obs]
 
-    # Z-score normalisation (weighted)
-    sw   = sum(ws)
-    mu_x = sum(w * x for w, x in zip(ws, xs)) / sw
-    mu_y = sum(w * y for w, y in zip(ws, ys)) / sw
-    sd_x = (sum(w * (x - mu_x) ** 2 for w, x in zip(ws, xs)) / sw) ** 0.5
-    sd_y = (sum(w * (y - mu_y) ** 2 for w, y in zip(ws, ys)) / sw) ** 0.5
+        # Z-score normalisation (weighted)
+        sw   = sum(ws)
+        mu_x = sum(w * x for w, x in zip(ws, xs)) / sw
+        mu_y = sum(w * y for w, y in zip(ws, ys)) / sw
+        sd_x = (sum(w * (x - mu_x) ** 2 for w, x in zip(ws, xs)) / sw) ** 0.5
+        sd_y = (sum(w * (y - mu_y) ** 2 for w, y in zip(ws, ys)) / sw) ** 0.5
 
-    if sd_x < 1e-9 or sd_y < 1e-9:
-        return None  # degenerate – no variance in one series
+        if sd_x < 1e-9 or sd_y < 1e-9:
+            # No variance – use mean ratio as constant model (slope=0, intercept=mean_pv)
+            models[hour] = (0.0, round(mu_y, 4))
+            continue
 
-    xs_n = [(x - mu_x) / sd_x for x in xs]
-    ys_n = [(y - mu_y) / sd_y for y in ys]
+        xs_n = [(x - mu_x) / sd_x for x in xs]
+        ys_n = [(y - mu_y) / sd_y for y in ys]
 
-    result = _wls(xs_n, ys_n, ws)
-    if result is None:
-        return None
+        result = _wls(xs_n, ys_n, ws)
+        if result is None:
+            continue
 
-    slope_n, intercept_n = result
+        slope_n, _ = result
+        # Back-transform to original units
+        slope_orig     = slope_n * (sd_y / sd_x)
+        intercept_orig = mu_y - slope_orig * mu_x
+        models[hour] = (round(slope_orig, 8), round(intercept_orig, 4))
 
-    # Back-transform: y_orig = slope_orig * x_orig + intercept_orig
-    slope_orig     = slope_n * (sd_y / sd_x)
-    intercept_orig = mu_y - slope_orig * mu_x
-
-    return round(slope_orig, 8), round(intercept_orig, 4)
+    return models
 
 
 def _wls(
