@@ -1,15 +1,20 @@
 """Sensors for Shady.
 
-Published sensors:
-  Aggregate (always):
-    shady_solar_forecast_hourly    – corrected Wh for the current hour
-                                     attr 'forecast': full {ts: Wh} dict
-    shady_solar_forecast_today     – total corrected Wh for today
-    shady_solar_forecast_remaining – corrected Wh remaining today (from now)
+Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
 
-  Per configured PV string (dynamic, one set per string):
-    shady_solar_forecast_hourly_<slug>  – corrected Wh current hour for that string
-                                          attr 'forecast': full {ts: Wh} for that string
+  Aggregate (always present):
+    solar_forecast_hourly            – corrected Wh for the current hour
+                                       attr 'forecast': full {ts: Wh} dict
+    solar_forecast_today             – total corrected Wh for today
+    solar_forecast_remaining         – corrected Wh remaining today (from now)
+
+  Per configured PV string (one sensor per non-empty pv_sensor_N config key):
+    solar_forecast_hourly_<slug>     – corrected Wh current hour for that string
+                                       attr 'forecast': per-string {ts: Wh} dict
+                                       attr 'pv_sensor': source entity_id
+
+  Note: slots whose hour-of-day has no fitted regression model are excluded
+  from the corrected forecast (no training data for that hour = no prediction).
 """
 from __future__ import annotations
 
@@ -186,7 +191,8 @@ class SolarForecastStringCurrentSensor(_Base):
         # unique_id uses conf_key so it stays stable even if entity_id is renamed
         super().__init__(coordinator, entry, f"solar_forecast_hourly_{conf_key}")
         self._pv_entity_id = pv_entity_id
-        # Human-readable: "Solar Forecast Hourly my_pv_string_1"
+        # Human-readable name derived from the PV entity ID slug, e.g.
+        # "Solar Forecast Hourly solakon_one_string_1_leistung"
         self._attr_name = f"Solar Forecast Hourly {slug}"
 
     @property

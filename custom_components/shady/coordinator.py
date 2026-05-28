@@ -7,15 +7,20 @@ Data pipeline:
 2. For each configured PV string (up to 4), fetch recorder statistics
    (hourly mean) over the last N days for fc_sensor and pv_sensor_i.
 
-3. Build per-string correction model via linear regression:
-     pv_actual ~ fc_reference   (per time-of-day, with neighbour smoothing)
+3. Build per-string hourly correction models via linear regression:
+     For each hour-of-day H (0–23) a separate WLS model is fitted:
+       pv_actual(H) ~ slope(H) * fc_reference(H) + intercept(H)
+     This captures shading patterns that differ by time of day.
 
-   Neighbour smoothing: for each hour H, the training pairs from hours
-   H-1 and H+1 are added at 50 % weight so the regression is not
-   over-fit to a single sharp hour bucket.
+   Neighbour smoothing: observations from H-1 and H+1 are added at 50 %
+   weight so hours with few samples borrow strength from adjacent hours.
 
-4. Apply per-string models:
-     corrected_i[ts] = predict(model_i, raw_forecast[ts])
+   Z-score normalisation per bucket makes models unit-agnostic
+   (fc_sensor in W, raw forecast in Wh).
+
+4. Apply per-string hourly models:
+     corrected_i[ts] = predict(models_i[hour(ts)], raw_forecast[ts])
+   Slots without a fitted model for their hour are omitted.
    Sum all strings → forecast[ts]
    Per-string forecasts stored separately in string_forecasts.
 
@@ -30,13 +35,14 @@ CoordinatorData fields:
   today_total      : float (Wh)
   remaining        : float (Wh)
 
-Persistence: last successful result (including per-string data and regression
-statistics) is saved to HA storage and restored on restart so sensors are
-never undefined after a reboot.
+Persistence: last successful result (raw_forecast, corrected forecast,
+per-string forecasts, daily totals) is saved to HA storage and restored
+on restart so sensors have values immediately after a reboot.
 """
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -236,7 +242,12 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     async def _apply_corrections(
         self, raw: dict[str, float], pv_sensors: list[str]
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
-        """Build one linear model per string, return (combined, per_string)."""
+        """Build one hourly WLS model per string, return (combined, per_string).
+
+    For each string, up to 24 per-hour models are fitted.  Each forecast
+    slot is predicted by the model matching its hour-of-day.  Slots whose
+    hour has no fitted model are excluded from the corrected output.
+    """
         fc_sensor    = self._cfg(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
         start        = dt_util.now() - timedelta(days=history_days)
@@ -336,7 +347,7 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 statistic_ids=statistic_ids,
                 period="hour",
                 types={"mean"},
-                units=["Wh"],
+                units=["Wh"],  # energy sensors; power sensors (W) are passed through as-is
             )
             return {
                 sid: [
@@ -384,9 +395,7 @@ def _build_hourly_models(
     if not common:
         return {}
 
-    # Group observations by hour-of-day
-    from collections import defaultdict
-    # {hour: [(fc_val, pv_val, weight), ...]}
+    # Group observations by hour-of-day: {hour: [(fc_val, pv_val, weight), ...]}
     buckets: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
 
     for dt in common:
