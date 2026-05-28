@@ -257,9 +257,24 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             pv_rows = stats.get(pv_sensor, [])
             model   = _build_regression_model(fc_rows, pv_rows)
             if model is None:
-                _LOGGER.debug("No regression model for %s – skipping", pv_sensor)
+                _LOGGER.warning(
+                    "No regression model for %s (fc_rows=%d, pv_rows=%d, common=%d) – skipping",
+                    pv_sensor, len(fc_rows), len(pv_rows),
+                    len(set(r["start"] for r in fc_rows) & set(r["start"] for r in pv_rows)),
+                )
                 continue
             slope, intercept = model
+            _LOGGER.info(
+                "Regression model for %s: slope=%.6f  intercept=%.4f  "
+                "fc_rows=%d  pv_rows=%d  "
+                "fc_range=[%.1f, %.1f]  pv_range=[%.1f, %.1f]",
+                pv_sensor, slope, intercept,
+                len(fc_rows), len(pv_rows),
+                min((r["mean"] for r in fc_rows), default=0),
+                max((r["mean"] for r in fc_rows), default=0),
+                min((r["mean"] for r in pv_rows), default=0),
+                max((r["mean"] for r in pv_rows), default=0),
+            )
             string_slots: dict[str, float] = {}
             for iso_ts, raw_wh in raw.items():
                 predicted = round(max(0.0, slope * raw_wh + intercept), 1)
@@ -327,8 +342,12 @@ def _build_regression_model(
     """WLS: pv ~ slope * fc + intercept, with ±1h neighbour smoothing at 50%.
 
     Row dicts contain {"start": datetime, "mean": float}.
+
+    Both sides are Z-score normalised before fitting so the regression is
+    independent of unit differences between the forecast reference sensor
+    (e.g. W) and the raw energy forecast (Wh).  Slope and intercept are
+    then back-transformed to operate directly on raw Wh values.
     """
-    # Keys are datetime objects – direct arithmetic, no re-parsing needed
     fc_map: dict[datetime, float] = {r["start"]: r["mean"] for r in fc_rows}
     pv_map: dict[datetime, float] = {r["start"]: r["mean"] for r in pv_rows}
 
@@ -355,7 +374,30 @@ def _build_regression_model(
     if len(xs) < 2:
         return None
 
-    return _wls(xs, ys, ws)
+    # Z-score normalisation (weighted)
+    sw   = sum(ws)
+    mu_x = sum(w * x for w, x in zip(ws, xs)) / sw
+    mu_y = sum(w * y for w, y in zip(ws, ys)) / sw
+    sd_x = (sum(w * (x - mu_x) ** 2 for w, x in zip(ws, xs)) / sw) ** 0.5
+    sd_y = (sum(w * (y - mu_y) ** 2 for w, y in zip(ws, ys)) / sw) ** 0.5
+
+    if sd_x < 1e-9 or sd_y < 1e-9:
+        return None  # degenerate – no variance in one series
+
+    xs_n = [(x - mu_x) / sd_x for x in xs]
+    ys_n = [(y - mu_y) / sd_y for y in ys]
+
+    result = _wls(xs_n, ys_n, ws)
+    if result is None:
+        return None
+
+    slope_n, intercept_n = result
+
+    # Back-transform: y_orig = slope_orig * x_orig + intercept_orig
+    slope_orig     = slope_n * (sd_y / sd_x)
+    intercept_orig = mu_y - slope_orig * mu_x
+
+    return round(slope_orig, 8), round(intercept_orig, 4)
 
 
 def _wls(
