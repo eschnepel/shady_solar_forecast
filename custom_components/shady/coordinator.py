@@ -290,6 +290,8 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 return v
             if isinstance(v, str):
                 return datetime.fromisoformat(v)
+            if isinstance(v, (int, float)):
+                return datetime.fromtimestamp(v, tz=dt_util.UTC)
             raise ValueError(f"Cannot parse start value: {v!r}")
 
         def _query() -> dict[str, list[dict]]:
