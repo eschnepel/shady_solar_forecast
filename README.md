@@ -55,7 +55,7 @@ Key properties of the correction model:
 ### Via HACS (recommended)
 
 1. Open HACS → **Integrations** → ⋮ → **Custom repositories**
-2. Add `https://github.com/your-username/shady` with category **Integration**
+2. Add `https://github.com/eschnepel/shady_solar_forecast` with category **Integration**
 3. Search for **Shady** and install
 4. Restart Home Assistant
 
