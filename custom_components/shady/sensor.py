@@ -86,7 +86,7 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name="Shady",
-            manufacturer="Home Assistant Energy",
+            manufacturer="Enrico Schnepel",
             entry_type="service",
         )
 
