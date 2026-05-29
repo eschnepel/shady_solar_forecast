@@ -7,16 +7,23 @@ Data pipeline:
 2. For each configured PV string (up to 4), fetch recorder statistics
    (hourly mean) over the last N days for fc_sensor and pv_sensor_i.
 
-3. Build per-string hourly correction models via linear regression:
-     For each hour-of-day H (0–23) a separate WLS model is fitted:
-       pv_actual(H) ~ slope(H) * fc_reference(H) + intercept(H)
-     This captures shading patterns that differ by time of day.
+3. Build per-string hourly correction models using the configured algorithm:
 
-   Neighbour smoothing: observations from H-1 and H+1 are added at 50 %
-   weight so hours with few samples borrow strength from adjacent hours.
+   FACTOR (mean ratio per hour-of-day):
+     factor(H) = avg(pv_actual(H)) / avg(fc_reference(H))
+     predict(H, x) = x * factor(H)
 
-   Z-score normalisation per bucket makes models unit-agnostic
-   (fc_sensor in W, raw forecast in Wh).
+   LINEAR (WLS per hour-of-day):
+     pv_actual(H) ~ slope(H) * fc_reference(H) + intercept(H)
+     predict(H, x) = slope(H) * x + intercept(H)
+
+   QUADRATIC (WLS per hour-of-day):
+     pv_actual(H) ~ a(H)*fc² + b(H)*fc + c(H)
+     predict(H, x) = a(H)*x² + b(H)*x + c(H)
+
+   All algorithms use:
+   - Neighbour smoothing: observations from H±1 at 50 % weight
+   - Z-score normalisation: unit-agnostic (fc in W, forecast in Wh)
 
 4. Apply per-string hourly models:
      corrected_i[ts] = predict(models_i[hour(ts)], raw_forecast[ts])
@@ -29,14 +36,13 @@ Data pipeline:
      remaining     – sum of corrected slots from now until end of today
 
 CoordinatorData fields:
-  raw_forecast     : {ISO-ts: Wh}              – raw aggregated provider forecast
+  raw_forecast     : {ISO-ts: Wh}
   forecast         : {ISO-ts: Wh}              – summed corrected forecast
-  string_forecasts : {sensor_entity_id: {ISO-ts: Wh}}  – per-string corrected forecasts
+  string_forecasts : {sensor_entity_id: {ISO-ts: Wh}}
   today_total      : float (Wh)
   remaining        : float (Wh)
 
-Persistence: last successful result (raw_forecast, corrected forecast,
-per-string forecasts, daily totals) is saved to HA storage and restored
+Persistence: last successful result is saved to HA storage and restored
 on restart so sensors have values immediately after a reboot.
 """
 from __future__ import annotations
@@ -61,8 +67,13 @@ from .const import (
     DOMAIN,
     CONF_FC_SENSOR,
     CONF_HISTORY_DAYS,
+    CONF_ALGORITHM,
     DEFAULT_FC_SENSOR,
     DEFAULT_HISTORY_DAYS,
+    DEFAULT_ALGORITHM,
+    ALGORITHM_FACTOR,
+    ALGORITHM_LINEAR,
+    ALGORITHM_QUADRATIC,
     PV_SENSOR_KEYS,
 )
 
@@ -80,11 +91,11 @@ _NEIGHBOUR_WEIGHT = 0.5
 
 @dataclass
 class CoordinatorData:
-    raw_forecast     : dict[str, float]              = field(default_factory=dict)
-    forecast         : dict[str, float]              = field(default_factory=dict)
-    string_forecasts : dict[str, dict[str, float]]   = field(default_factory=dict)
-    today_total      : float                         = 0.0
-    remaining        : float                         = 0.0
+    raw_forecast     : dict[str, float]            = field(default_factory=dict)
+    forecast         : dict[str, float]            = field(default_factory=dict)
+    string_forecasts : dict[str, dict[str, float]] = field(default_factory=dict)
+    today_total      : float                       = 0.0
+    remaining        : float                       = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -124,10 +135,9 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     # ---- lifecycle ----
 
     async def async_setup(self) -> None:
-        # Restore last known data immediately so sensors have values on restart
         stored = await self._store.async_load()
         if isinstance(stored, dict) and stored:
-            _LOGGER.debug("Restored forecast + statistics from storage (%d slots)",
+            _LOGGER.debug("Restored forecast from storage (%d slots)",
                           len(stored.get("forecast", {})))
             self.async_set_updated_data(CoordinatorData.from_dict(stored))
 
@@ -151,7 +161,6 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         except Exception as err:
             raise UpdateFailed(f"Forecast build error: {err}") from err
 
-        # Persist every successful non-empty result (includes per-string data)
         if data.forecast:
             await self._store.async_save(data.to_dict())
             _LOGGER.debug("Saved forecast to storage (%d slots, %d strings)",
@@ -169,7 +178,7 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         else:
             forecast, string_forecasts = await self._apply_corrections(raw, pv_sensors)
 
-        now = dt_util.now()
+        now            = dt_util.now()
         today_start    = now.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
 
@@ -237,17 +246,13 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
         return dict(sorted(slots.items()))
 
-    # ---- step 2: per-string regression + correction ----
+    # ---- step 2: per-string correction ----
 
     async def _apply_corrections(
         self, raw: dict[str, float], pv_sensors: list[str]
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
-        """Build one hourly WLS model per string, return (combined, per_string).
-
-    For each string, up to 24 per-hour models are fitted.  Each forecast
-    slot is predicted by the model matching its hour-of-day.  Slots whose
-    hour has no fitted model are excluded from the corrected output.
-    """
+        """Build one hourly model per string using the configured algorithm."""
+        algorithm    = self._cfg(CONF_ALGORITHM, DEFAULT_ALGORITHM)
         fc_sensor    = self._cfg(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
         start        = dt_util.now() - timedelta(days=history_days)
@@ -261,34 +266,33 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
         fc_rows = stats.get(fc_sensor, [])
 
-        combined      : dict[str, float]              = {}
-        string_forecasts: dict[str, dict[str, float]] = {}
+        combined        : dict[str, float]              = {}
+        string_forecasts: dict[str, dict[str, float]]   = {}
 
         for pv_sensor in pv_sensors:
-            pv_rows  = stats.get(pv_sensor, [])
-            models   = _build_hourly_models(fc_rows, pv_rows)
+            pv_rows = stats.get(pv_sensor, [])
+            models  = _build_hourly_models(fc_rows, pv_rows, algorithm)
+
             if not models:
                 _LOGGER.warning(
-                    "No hourly models for %s (fc_rows=%d, pv_rows=%d) – skipping",
-                    pv_sensor, len(fc_rows), len(pv_rows),
+                    "No hourly models for %s (algorithm=%s, fc_rows=%d, pv_rows=%d) – skipping",
+                    pv_sensor, algorithm, len(fc_rows), len(pv_rows),
                 )
                 continue
 
             _LOGGER.info(
-                "Hourly models for %s: %d hour-buckets fitted  "
+                "Hourly models for %s: algorithm=%s  %d hour-buckets  "
                 "fc_rows=%d  pv_rows=%d  "
                 "fc_range=[%.1f, %.1f]  pv_range=[%.1f, %.1f]",
-                pv_sensor, len(models),
+                pv_sensor, algorithm, len(models),
                 len(fc_rows), len(pv_rows),
                 min((r["mean"] for r in fc_rows), default=0),
                 max((r["mean"] for r in fc_rows), default=0),
                 min((r["mean"] for r in pv_rows), default=0),
                 max((r["mean"] for r in pv_rows), default=0),
             )
-            # Log per-hour slopes for diagnostic visibility
             for h in sorted(models):
-                s, i = models[h]
-                _LOGGER.debug("  hour %02d: slope=%.4f  intercept=%.4f", h, s, i)
+                _LOGGER.debug("  hour %02d: %s", h, models[h])
 
             string_slots: dict[str, float] = {}
             for iso_ts, raw_wh in raw.items():
@@ -297,24 +301,25 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 except ValueError:
                     continue
                 if hour not in models:
-                    continue
-                slope, intercept = models[hour]
-                predicted = round(max(0.0, slope * raw_wh + intercept), 1)
-                string_slots[iso_ts]  = predicted
-                combined[iso_ts]      = round(combined.get(iso_ts, 0.0) + predicted, 1)
+                    # No training data for this hour (e.g. night) → default 0
+                    predicted = 0.0
+                else:
+                    predicted = round(max(0.0, _predict(models[hour], raw_wh)), 1)
+                string_slots[iso_ts] = predicted
+                combined[iso_ts]     = round(combined.get(iso_ts, 0.0) + predicted, 1)
             string_forecasts[pv_sensor] = string_slots
 
         if not combined:
             _LOGGER.debug("All string models failed – falling back to raw forecast")
             return dict(raw), {}
 
-        # Summary: compare a midday raw slot vs combined corrected
-        midday_raw      = {ts: wh for ts, wh in raw.items()      if "T12:" in ts or "T11:" in ts}
-        midday_combined = {ts: wh for ts, wh in combined.items() if "T12:" in ts or "T11:" in ts}
-        if midday_raw and midday_combined:
-            r = next(iter(midday_raw.values()))
-            p = next(iter(midday_combined.values()))
-            _LOGGER.info("  → Combined midday slot: raw=%.1f Wh  corrected=%.1f Wh", r, p)
+        # Diagnostic: compare midday raw vs corrected
+        for ts_needle in ("T12:", "T11:"):
+            midday_r = next((wh for ts, wh in raw.items()      if ts_needle in ts), None)
+            midday_c = next((wh for ts, wh in combined.items() if ts_needle in ts), None)
+            if midday_r is not None and midday_c is not None:
+                _LOGGER.info("  → Midday slot: raw=%.1f Wh  corrected=%.1f Wh", midday_r, midday_c)
+                break
 
         return dict(sorted(combined.items())), string_forecasts
 
@@ -362,31 +367,51 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
 
 # ---------------------------------------------------------------------------
-# Linear regression helpers
+# Model types
 # ---------------------------------------------------------------------------
+#
+# Models are stored as tuples whose length identifies the algorithm:
+#
+#   FACTOR      : (factor,)              – single float
+#   LINEAR      : (slope, intercept)     – 2-tuple
+#   QUADRATIC   : (a, b, c)              – 3-tuple
+#
+# All values operate in original (back-transformed) units.
 
-# Type alias: hour-of-day (0–23) → (slope, intercept)
-HourlyModel = dict[int, tuple[float, float]]
+# {hour-of-day: model_tuple}
+HourlyModels = dict[int, tuple]
 
+
+def _predict(model: tuple, x: float) -> float:
+    """Apply a model tuple to a raw forecast value x."""
+    if len(model) == 1:
+        # FACTOR: y = factor * x
+        return model[0] * x
+    if len(model) == 2:
+        # LINEAR: y = slope * x + intercept
+        slope, intercept = model
+        return slope * x + intercept
+    # QUADRATIC: y = a*x² + b*x + c
+    a, b, c = model
+    return a * x * x + b * x + c
+
+
+# ---------------------------------------------------------------------------
+# Model builder – dispatches to algorithm-specific fitters
+# ---------------------------------------------------------------------------
 
 def _build_hourly_models(
     fc_rows: list[dict],
     pv_rows: list[dict],
-) -> HourlyModel:
-    """Build one WLS model per hour-of-day (0–23).
+    algorithm: str,
+) -> HourlyModels:
+    """Build one model per hour-of-day using the requested algorithm.
 
-    For each hour H a separate regression is fitted:
-        pv_actual(H) ~ slope(H) * fc_reference(H) + intercept(H)
-
-    This captures shading effects that are specific to certain times of day
-    (e.g. a chimney shadow that only affects string 2 between 09:00–11:00).
-
-    Neighbour smoothing: observations from H-1 and H+1 are added at 50 %
-    weight so hours with few training samples borrow strength from adjacent
-    hours.
-
-    Z-score normalisation per hour bucket makes the regression unit-agnostic
-    (fc_sensor in W, raw forecast in Wh).
+    Common pre-processing for all algorithms:
+    - Keys are datetime objects (no ISO re-parsing in inner loops)
+    - Observations grouped into 24 hour-of-day buckets
+    - Neighbour smoothing: H±1 observations added at 50 % weight
+    - Z-score normalisation per bucket (unit-agnostic)
     """
     fc_map: dict[datetime, float] = {r["start"]: r["mean"] for r in fc_rows}
     pv_map: dict[datetime, float] = {r["start"]: r["mean"] for r in pv_rows}
@@ -395,58 +420,154 @@ def _build_hourly_models(
     if not common:
         return {}
 
-    # Group observations by hour-of-day: {hour: [(fc_val, pv_val, weight), ...]}
+    # Group into hour-of-day buckets with neighbour smoothing
+    # {hour: [(fc_val, pv_val, weight), ...]}
     buckets: dict[int, list[tuple[float, float, float]]] = defaultdict(list)
-
     for dt in common:
         h = dt.hour
         buckets[h].append((fc_map[dt], pv_map[dt], 1.0))
-        # Neighbours contribute to adjacent buckets at half weight
         for delta_h in (-1, +1):
             nb = dt + timedelta(hours=delta_h)
             if nb in fc_map and nb in pv_map:
                 buckets[nb.hour].append((fc_map[nb], pv_map[nb], _NEIGHBOUR_WEIGHT))
 
-    models: HourlyModel = {}
+    models: HourlyModels = {}
     for hour, obs in buckets.items():
         if len(obs) < 2:
             continue
+
         xs = [o[0] for o in obs]
         ys = [o[1] for o in obs]
         ws = [o[2] for o in obs]
 
-        # Z-score normalisation (weighted)
-        sw   = sum(ws)
-        mu_x = sum(w * x for w, x in zip(ws, xs)) / sw
-        mu_y = sum(w * y for w, y in zip(ws, ys)) / sw
-        sd_x = (sum(w * (x - mu_x) ** 2 for w, x in zip(ws, xs)) / sw) ** 0.5
-        sd_y = (sum(w * (y - mu_y) ** 2 for w, y in zip(ws, ys)) / sw) ** 0.5
+        if algorithm == ALGORITHM_FACTOR:
+            model = _fit_factor(xs, ys, ws)
+        elif algorithm == ALGORITHM_QUADRATIC:
+            model = _fit_quadratic(xs, ys, ws)
+        else:
+            model = _fit_linear(xs, ys, ws)
 
-        if sd_x < 1e-9 or sd_y < 1e-9:
-            # No variance – use mean ratio as constant model (slope=0, intercept=mean_pv)
-            models[hour] = (0.0, round(mu_y, 4))
-            continue
-
-        xs_n = [(x - mu_x) / sd_x for x in xs]
-        ys_n = [(y - mu_y) / sd_y for y in ys]
-
-        result = _wls(xs_n, ys_n, ws)
-        if result is None:
-            continue
-
-        slope_n, _ = result
-        # Back-transform to original units
-        slope_orig     = slope_n * (sd_y / sd_x)
-        intercept_orig = mu_y - slope_orig * mu_x
-        models[hour] = (round(slope_orig, 8), round(intercept_orig, 4))
+        if model is not None:
+            models[hour] = model
 
     return models
 
 
-def _wls(
+# ---------------------------------------------------------------------------
+# Algorithm 1: Factor  –  factor(H) = weighted_avg(pv) / weighted_avg(fc)
+# ---------------------------------------------------------------------------
+
+def _fit_factor(
+    xs: list[float], ys: list[float], ws: list[float]
+) -> tuple | None:
+    """Per-hour mean ratio: factor = avg_w(pv) / avg_w(fc).
+
+    No normalisation needed – the ratio is inherently unit-agnostic.
+    Returns (factor,) so _predict can identify it by length.
+    """
+    sw  = sum(ws)
+    if sw == 0:
+        return None
+    mu_x = sum(w * x for w, x in zip(ws, xs)) / sw
+    mu_y = sum(w * y for w, y in zip(ws, ys)) / sw
+    if mu_x < 1e-9:
+        return (0.0,)
+    return (round(mu_y / mu_x, 8),)
+
+
+# ---------------------------------------------------------------------------
+# Algorithm 2: Linear  –  pv ~ slope*fc + intercept  (Z-score WLS)
+# ---------------------------------------------------------------------------
+
+def _fit_linear(
+    xs: list[float], ys: list[float], ws: list[float]
+) -> tuple | None:
+    """WLS linear regression with Z-score normalisation.
+
+    Returns (slope, intercept) in original units.
+    """
+    sw   = sum(ws)
+    mu_x = sum(w * x for w, x in zip(ws, xs)) / sw
+    mu_y = sum(w * y for w, y in zip(ws, ys)) / sw
+    sd_x = (sum(w * (x - mu_x) ** 2 for w, x in zip(ws, xs)) / sw) ** 0.5
+    sd_y = (sum(w * (y - mu_y) ** 2 for w, y in zip(ws, ys)) / sw) ** 0.5
+
+    if sd_x < 1e-9 or sd_y < 1e-9:
+        return (0.0, round(mu_y, 4))
+
+    xs_n = [(x - mu_x) / sd_x for x in xs]
+    ys_n = [(y - mu_y) / sd_y for y in ys]
+
+    result = _wls2(xs_n, ys_n, ws)
+    if result is None:
+        return None
+
+    slope_n, _ = result
+    slope_orig     = slope_n * (sd_y / sd_x)
+    intercept_orig = mu_y - slope_orig * mu_x
+    return (round(slope_orig, 8), round(intercept_orig, 4))
+
+
+# ---------------------------------------------------------------------------
+# Algorithm 3: Quadratic  –  pv ~ a*fc² + b*fc + c  (Z-score WLS)
+# ---------------------------------------------------------------------------
+
+def _fit_quadratic(
+    xs: list[float], ys: list[float], ws: list[float]
+) -> tuple | None:
+    """WLS quadratic regression with Z-score normalisation.
+
+    Fits pv ~ a*fc² + b*fc + c in normalised space, then back-transforms
+    the coefficients to original units so _predict receives raw Wh values.
+
+    Returns (a, b, c) in original units.
+    """
+    if len(xs) < 3:
+        # Fall back to linear if not enough points for quadratic
+        return _fit_linear(xs, ys, ws)
+
+    sw   = sum(ws)
+    mu_x = sum(w * x for w, x in zip(ws, xs)) / sw
+    mu_y = sum(w * y for w, y in zip(ws, ys)) / sw
+    sd_x = (sum(w * (x - mu_x) ** 2 for w, x in zip(ws, xs)) / sw) ** 0.5
+    sd_y = (sum(w * (y - mu_y) ** 2 for w, y in zip(ws, ys)) / sw) ** 0.5
+
+    if sd_x < 1e-9 or sd_y < 1e-9:
+        return (0.0, 0.0, round(mu_y, 4))
+
+    xs_n = [(x - mu_x) / sd_x for x in xs]
+    ys_n = [(y - mu_y) / sd_y for y in ys]
+
+    result = _wls3(xs_n, ys_n, ws)
+    if result is None:
+        return _fit_linear(xs, ys, ws)  # graceful fallback
+
+    a_n, b_n, c_n = result
+
+    # Back-transform:  y_orig = sd_y * y_n + mu_y,  x_n = (x_orig - mu_x) / sd_x
+    # y_n = a_n*x_n² + b_n*x_n + c_n
+    # substituting x_n:
+    #   y_orig = sd_y*(a_n*((x-mu_x)/sd_x)² + b_n*(x-mu_x)/sd_x + c_n) + mu_y
+    #          = (a_n*sd_y/sd_x²)*x² + (b_n*sd_y/sd_x - 2*a_n*sd_y*mu_x/sd_x²)*x
+    #            + (a_n*sd_y*mu_x²/sd_x² - b_n*sd_y*mu_x/sd_x + c_n*sd_y + mu_y)
+    a_orig = a_n * sd_y / (sd_x ** 2)
+    b_orig = (b_n * sd_y / sd_x) - (2 * a_n * sd_y * mu_x / sd_x ** 2)
+    c_orig = (a_n * sd_y * mu_x ** 2 / sd_x ** 2
+              - b_n * sd_y * mu_x / sd_x
+              + c_n * sd_y
+              + mu_y)
+
+    return (round(a_orig, 10), round(b_orig, 8), round(c_orig, 4))
+
+
+# ---------------------------------------------------------------------------
+# WLS solvers
+# ---------------------------------------------------------------------------
+
+def _wls2(
     xs: list[float], ys: list[float], ws: list[float]
 ) -> tuple[float, float] | None:
-    """Weighted least squares → (slope, intercept)."""
+    """Weighted least squares for linear model → (slope, intercept)."""
     sw   = sum(ws)
     if sw == 0:
         return None
@@ -462,6 +583,63 @@ def _wls(
     slope     = (sw * swxy - swx * swy) / denom
     intercept = (swy - slope * swx) / sw
     return round(slope, 8), round(intercept, 4)
+
+
+def _wls3(
+    xs: list[float], ys: list[float], ws: list[float]
+) -> tuple[float, float, float] | None:
+    """Weighted least squares for quadratic model → (a, b, c).
+
+    Solves the 3×3 normal equations:
+      [Σw    Σwx   Σwx² ] [c]   [Σwy  ]
+      [Σwx   Σwx²  Σwx³ ] [b] = [Σwxy ]
+      [Σwx²  Σwx³  Σwx⁴] [a]   [Σwx²y]
+    """
+    sw    = sum(ws)
+    swx   = sum(w * x         for w, x    in zip(ws, xs))
+    swx2  = sum(w * x**2      for w, x    in zip(ws, xs))
+    swx3  = sum(w * x**3      for w, x    in zip(ws, xs))
+    swx4  = sum(w * x**4      for w, x    in zip(ws, xs))
+    swy   = sum(w * y         for w, y    in zip(ws, ys))
+    swxy  = sum(w * x * y     for w, x, y in zip(ws, xs, ys))
+    swx2y = sum(w * x**2 * y  for w, x, y in zip(ws, xs, ys))
+
+    # Cramer's rule on the 3×3 system
+    M = [
+        [sw,   swx,  swx2],
+        [swx,  swx2, swx3],
+        [swx2, swx3, swx4],
+    ]
+    rhs = [swy, swxy, swx2y]
+
+    det = _det3(M)
+    if abs(det) < 1e-12:
+        return None
+
+    c = _det3(_col_replace(M, 0, rhs)) / det
+    b = _det3(_col_replace(M, 1, rhs)) / det
+    a = _det3(_col_replace(M, 2, rhs)) / det
+
+    return round(a, 10), round(b, 8), round(c, 4)
+
+
+def _det3(m: list[list[float]]) -> float:
+    """3×3 determinant."""
+    return (
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    )
+
+
+def _col_replace(
+    m: list[list[float]], col: int, vals: list[float]
+) -> list[list[float]]:
+    """Return a copy of m with column col replaced by vals."""
+    return [
+        [vals[r] if c == col else m[r][c] for c in range(3)]
+        for r in range(3)
+    ]
 
 
 # ---------------------------------------------------------------------------

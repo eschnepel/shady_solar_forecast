@@ -10,11 +10,17 @@
           "pv_sensor_2": "PV-String 2 (optional)",
           "pv_sensor_3": "PV-String 3 (optional)",
           "pv_sensor_4": "PV-String 4 (optional)",
-          "history_days": "Tage Recorder-Historie"
+          "history_days": "Tage Recorder-Historie",
+          "algorithm": "Korrektur-Algorithmus"
+        },
+        "data_description": {
+          "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde"
         }
       }
     },
-    "abort": { "single_instance_allowed": "Es ist nur eine Instanz erlaubt." }
+    "abort": {
+      "single_instance_allowed": "Es ist nur eine Instanz erlaubt."
+    }
   },
   "options": {
     "step": {
@@ -26,8 +32,21 @@
           "pv_sensor_2": "PV-String 2 (optional)",
           "pv_sensor_3": "PV-String 3 (optional)",
           "pv_sensor_4": "PV-String 4 (optional)",
-          "history_days": "Tage Recorder-Historie"
+          "history_days": "Tage Recorder-Historie",
+          "algorithm": "Korrektur-Algorithmus"
+        },
+        "data_description": {
+          "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde"
         }
+      }
+    }
+  },
+  "selector": {
+    "algorithm": {
+      "options": {
+        "factor": "Faktor (stündliches Mittelwert-Verhältnis)",
+        "linear": "Lineare Regression",
+        "quadratic": "Quadratische Regression"
       }
     }
   }

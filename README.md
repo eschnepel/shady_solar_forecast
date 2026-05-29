@@ -3,7 +3,7 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![HA Version](https://img.shields.io/badge/Home%20Assistant-2024.1%2B-blue.svg)](https://www.home-assistant.io/)
 
-**Shady** exposes the solar production forecast from Home Assistant's built-in Energy Dashboard as proper sensor entities — corrected for real-world shading and string-specific losses using a per-hour linear regression model trained on your own historical recorder data.
+**Shady** exposes the solar production forecast from Home Assistant's built-in Energy Dashboard as proper sensor entities — corrected for real-world shading and string-specific losses using a per-hour model trained on your own historical recorder data.
 
 ---
 
@@ -13,28 +13,47 @@
 Energy Dashboard forecast (Wh/slot)
         │
         ▼
-┌─────────────────────────────────────────────┐
-│  Per-string hourly regression correction    │
-│                                             │
-│  For each PV string and each hour-of-day H: │
-│    slope(H), intercept(H)  ←  WLS fit over  │
-│    last N days of recorder history          │
-│                                             │
-│  Corrected(H) = max(0, slope(H) × raw + intercept(H))  │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│  Per-string hourly correction (chosen algorithm) │
+│                                                  │
+│  For each PV string and each hour-of-day H:      │
+│    model(H)  ←  fitted over last N days          │
+│    of recorder history                           │
+│                                                  │
+│  Corrected(H) = max(0, predict(model(H), raw))   │
+└──────────────────────────────────────────────────┘
         │
         ▼
 Summed corrected forecast → HA sensors
 ```
 
-Key properties of the correction model:
+### Correction Algorithms
 
-- **Per-hour models** — a separate regression is fitted for each hour of the day (0–23). A chimney that shades string 2 only between 09:00–11:00 is modelled precisely.
+Three algorithms are available, all sharing the same per-hour structure:
+
+| Algorithm | Model | Best for |
+|---|---|---|
+| **Factor** | `y = factor(H) × raw` | Simple setups, limited history |
+| **Linear regression** | `y = slope(H) × raw + intercept(H)` | General use (default) |
+| **Quadratic regression** | `y = a(H) × raw² + b(H) × raw + c(H)` | Non-linear shading effects |
+
+All algorithms use:
+- **Per-hour models** — a separate model is fitted for each hour of the day (0–23). A chimney that shades string 2 only between 09:00–11:00 is captured precisely.
 - **Neighbour smoothing** — training samples from H±1 are added at 50 % weight so hours with few data points borrow strength from adjacent hours.
-- **Z-score normalisation** — the forecast reference sensor (typically in W) and the raw forecast (Wh) can have different units and magnitudes; normalisation makes the regression unit-agnostic.
-- **Up to 4 independent PV strings** — each string gets its own set of hourly models, allowing different shading profiles per string.
-- **Persistence** — the last successful forecast is saved to HA storage and restored on restart so sensors are never undefined after a reboot.
-- **Event-driven** — updates immediately whenever the Energy Manager receives new forecast data; a 1-hour fallback poll is used as safety net.
+- **Z-score normalisation** — the forecast reference sensor (typically in W) and the raw forecast (Wh) can have different units; normalisation makes all algorithms unit-agnostic.
+- **Graceful fallback** — quadratic falls back to linear if fewer than 3 training points are available for a bucket; any algorithm falls back to the raw forecast if no models can be fitted.
+
+### Per-String Models
+
+Up to 4 PV strings can be configured independently. Each string gets its own set of hourly models, allowing different shading profiles per string (e.g. string 1 faces south-west and is unshaded, string 2 faces east and is shaded by a chimney at 09:00–11:00). The corrected outputs are summed into the aggregate forecast.
+
+### Persistence
+
+The last successful forecast is saved to HA storage and restored on restart so sensors have values immediately after a reboot.
+
+### Event-Driven Updates
+
+Updates are triggered immediately whenever the Energy Manager receives new forecast data. A 1-hour fallback poll is used as safety net.
 
 ---
 
@@ -61,7 +80,7 @@ Key properties of the correction model:
 
 ### Manual
 
-1. Copy the `shady/` folder into `<config>/custom_components/shady/`
+1. Copy the `custom_components/shady/` folder into `<config>/custom_components/shady/`
 2. Restart Home Assistant
 
 ---
@@ -76,9 +95,12 @@ Key properties of the correction model:
 | **Forecast reference sensor** | ✓ | Sensor tracked by the Recorder that correlates with the raw forecast (e.g. `sensor.power_production_now`) |
 | **PV String 1** | ✓ | Actual production sensor for string 1 (tracked by Recorder) |
 | **PV String 2–4** | – | Additional string sensors (leave empty if not applicable) |
-| **History days** | – | Days of recorder history used for regression training (default: 28) |
+| **History days** | – | Days of recorder history used for model training (default: 28) |
+| **Correction algorithm** | – | `factor`, `linear` (default), or `quadratic` |
 
-> **Tip:** The forecast reference sensor and PV string sensors must have recorder statistics. Verify in **Developer Tools → Statistics**.
+All options can be changed later via **Settings → Devices & Services → Shady → Configure**.
+
+> **Tip:** The forecast reference sensor and PV string sensors must have recorder statistics. Verify under **Developer Tools → Statistics**.
 
 ---
 
@@ -104,7 +126,7 @@ forecast:
   ...
 ```
 
-> Note: slots whose hour-of-day has no fitted regression model (e.g. night hours with zero variance) are excluded from the corrected forecast.
+> Note: slots whose hour-of-day has no fitted model (e.g. night hours with zero variance) are excluded from the corrected forecast.
 
 ### Per-String
 
@@ -112,9 +134,22 @@ For each configured PV string one additional sensor is created:
 
 | Entity (example) | Unit | Description |
 |---|---|---|
-| `sensor.shady_solar_forecast_hourly_solakon_one_string_1_leistung` | Wh | Corrected forecast for the current hour, string 1 only |
+| `sensor.shady_solar_forecast_hourly_solakon_one_string_1_leistung` | Wh | Corrected forecast current hour, string 1 only |
 
-Each per-string sensor also carries a `forecast` attribute (same structure as above, string-specific) and a `pv_sensor` attribute with the source entity ID.
+Each per-string sensor carries a `forecast` attribute (string-specific `{ts: Wh}` dict) and a `pv_sensor` attribute with the source entity ID.
+
+---
+
+## Choosing an Algorithm
+
+| Situation | Recommendation |
+|---|---|
+| Less than 2–3 weeks of history | **Factor** – needs fewest data points |
+| Typical residential installation | **Linear** – good balance of accuracy and stability |
+| Strong non-linear shading (e.g. partial roof obstruction that grows with sun angle) | **Quadratic** – models the curvature; requires more history for stable coefficients |
+| Quadratic produces implausible spikes | Switch back to **Linear** |
+
+All algorithms are constrained to `max(0, predicted)` so no negative production values are ever emitted.
 
 ---
 
@@ -158,7 +193,7 @@ template:
 
 ## Diagnostics & Troubleshooting
 
-Enable **DEBUG** logging for detailed regression output:
+Enable **DEBUG** logging for detailed model output:
 
 ```yaml
 logger:
@@ -166,14 +201,14 @@ logger:
     custom_components.shady: debug
 ```
 
-On each update you will see:
+On each update you will see per-string INFO lines plus DEBUG detail per hour:
 
 ```
-INFO  Hourly models for sensor.string_1: 14 hour-buckets fitted  fc_rows=419  pv_rows=401
-DEBUG   hour 06: slope=0.2341  intercept=1.2300
-DEBUG   hour 07: slope=0.3102  intercept=0.8800
+INFO  Hourly models for sensor.string_1: algorithm=linear  14 hour-buckets  fc_rows=419  pv_rows=401  ...
+DEBUG   hour 06: (0.2341, 1.23)
+DEBUG   hour 07: (0.3102, 0.88)
 ...
-INFO  → Combined midday slot: raw=612.0 Wh  corrected=287.4 Wh
+INFO  → Midday slot: raw=612.0 Wh  corrected=287.4 Wh
 ```
 
 | Symptom | Likely cause |
@@ -181,8 +216,9 @@ INFO  → Combined midday slot: raw=612.0 Wh  corrected=287.4 Wh
 | Sensors show `unavailable` | No solar forecast provider configured in Energy Dashboard |
 | `forecast` attribute is `{}` | Forecast provider has no data yet; wait up to 1 h |
 | `No hourly models for sensor.x` | Sensor has no recorder statistics — check **Developer Tools → Statistics** |
-| Corrected = Raw | All hour-buckets degenerate (zero variance); needs more history |
-| Corrected values seem wrong | Check `fc_sensor` — it should correlate with the raw forecast, not be the PV production itself |
+| Corrected ≈ Raw | `fc_sensor` and PV sensors are the same or too similar; choose a reference that tracks the unshaded forecast |
+| Quadratic produces implausible values | Insufficient history for stable quadratic fit; switch to Linear |
+| All hour-buckets degenerate | Zero variance in training data; more history needed |
 
 ---
 

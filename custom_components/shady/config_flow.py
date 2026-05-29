@@ -12,9 +12,10 @@ from homeassistant.helpers import selector
 
 from .const import (
     DOMAIN, DEFAULT_NAME,
-    CONF_FC_SENSOR, CONF_HISTORY_DAYS,
+    CONF_FC_SENSOR, CONF_HISTORY_DAYS, CONF_ALGORITHM,
     CONF_PV_SENSOR_1, CONF_PV_SENSOR_2, CONF_PV_SENSOR_3, CONF_PV_SENSOR_4,
-    DEFAULT_FC_SENSOR, DEFAULT_HISTORY_DAYS,
+    DEFAULT_FC_SENSOR, DEFAULT_HISTORY_DAYS, DEFAULT_ALGORITHM,
+    ALGORITHM_OPTIONS,
 )
 
 _ENTITY_SEL = selector.EntitySelector(
@@ -22,6 +23,13 @@ _ENTITY_SEL = selector.EntitySelector(
 )
 _ENTITY_SEL_OPT = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", multiple=False)
+)
+_ALGORITHM_SEL = selector.SelectSelector(
+    selector.SelectSelectorConfig(
+        options=ALGORITHM_OPTIONS,
+        translation_key="algorithm",
+        mode=selector.SelectSelectorMode.LIST,
+    )
 )
 
 
@@ -37,6 +45,7 @@ def _schema(d: dict) -> vol.Schema:
         vol.Optional(CONF_PV_SENSOR_4, default=_get(CONF_PV_SENSOR_4)): _ENTITY_SEL_OPT,
         vol.Optional(CONF_HISTORY_DAYS, default=_get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)):
             vol.All(int, vol.Range(min=7, max=365)),
+        vol.Required(CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)): _ALGORITHM_SEL,
     })
 
 

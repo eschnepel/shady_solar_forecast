@@ -10,11 +10,17 @@
           "pv_sensor_2": "PV string 2 (optional)",
           "pv_sensor_3": "PV string 3 (optional)",
           "pv_sensor_4": "PV string 4 (optional)",
-          "history_days": "Days of recorder history"
+          "history_days": "Days of recorder history",
+          "algorithm": "Correction algorithm"
+        },
+        "data_description": {
+          "algorithm": "Algorithm used to compute the per-hour shading correction"
         }
       }
     },
-    "abort": { "single_instance_allowed": "Only one instance is allowed." }
+    "abort": {
+      "single_instance_allowed": "Only one instance is allowed."
+    }
   },
   "options": {
     "step": {
@@ -26,8 +32,21 @@
           "pv_sensor_2": "PV string 2 (optional)",
           "pv_sensor_3": "PV string 3 (optional)",
           "pv_sensor_4": "PV string 4 (optional)",
-          "history_days": "Days of recorder history"
+          "history_days": "Days of recorder history",
+          "algorithm": "Correction algorithm"
+        },
+        "data_description": {
+          "algorithm": "Algorithm used to compute the per-hour shading correction"
         }
+      }
+    }
+  },
+  "selector": {
+    "algorithm": {
+      "options": {
+        "factor": "Factor (hourly mean ratio)",
+        "linear": "Linear regression",
+        "quadratic": "Quadratic regression"
       }
     }
   }
