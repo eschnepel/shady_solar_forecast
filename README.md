@@ -115,8 +115,9 @@ All sensors are grouped under the **Shady** device.
 | `sensor.shady_solar_forecast_hourly` | Wh | Corrected forecast for the **current hour** |
 | `sensor.shady_solar_forecast_today` | Wh | Total corrected forecast for **today** |
 | `sensor.shady_solar_forecast_remaining` | Wh | Corrected forecast for the **rest of today** |
+| `sensor.shady_solar_forecast_hourly_raw` | Wh | **Raw** (uncorrected) forecast for the current hour |
 
-The `solar_forecast_hourly` sensor carries a `forecast` attribute with the full corrected forecast dict:
+The `solar_forecast_hourly` and `solar_forecast_hourly_raw` sensors each carry a `forecast` attribute with their respective full forecast dict:
 
 ```yaml
 forecast:
@@ -126,7 +127,7 @@ forecast:
   ...
 ```
 
-> Note: slots whose hour-of-day has no fitted model (e.g. night hours with zero variance) are excluded from the corrected forecast.
+> Note: slots whose hour-of-day has no fitted model (e.g. night hours with zero variance) default to `0.0` in the corrected forecast.
 
 ### Per-String
 

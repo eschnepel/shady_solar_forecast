@@ -7,6 +7,8 @@ Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
                                        attr 'forecast': full {ts: Wh} dict
     solar_forecast_today             – total corrected Wh for today
     solar_forecast_remaining         – corrected Wh remaining today (from now)
+    solar_forecast_hourly_raw        – raw (uncorrected) Wh for the current hour
+                                       attr 'forecast': full raw {ts: Wh} dict
 
   Per configured PV string (one sensor per non-empty pv_sensor_N config key):
     solar_forecast_hourly_<slug>     – corrected Wh current hour for that string
@@ -51,6 +53,7 @@ async def async_setup_entry(
         SolarForecastCurrentSensor(coordinator, entry),
         SolarForecastTodaySensor(coordinator, entry),
         SolarForecastRemainingSensor(coordinator, entry),
+        SolarForecastCurrentRawSensor(coordinator, entry),
     ]
 
     # One hourly sensor per configured PV string
@@ -162,6 +165,27 @@ class SolarForecastRemainingSensor(_Base):
     def native_value(self) -> float | None:
         d = self._data
         return d.remaining if d.forecast else None
+
+
+
+# ---------------------------------------------------------------------------
+# Sensor 4: raw current hour
+# ---------------------------------------------------------------------------
+
+class SolarForecastCurrentRawSensor(_Base):
+    _attr_name = "Solar Forecast Hourly Raw"
+    _attr_icon = "mdi:solar-power-variant-outline"
+
+    def __init__(self, coordinator: ShadyCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "solar_forecast_hourly_raw")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._current_hour_value(self._data.raw_forecast)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"forecast": self._data.raw_forecast}
 
 
 # ---------------------------------------------------------------------------
