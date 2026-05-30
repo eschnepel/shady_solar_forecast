@@ -492,7 +492,7 @@ def _fit_linear(xs: list[float], ys: list[float], ws: list[float]) -> tuple | No
     slope, intercept = result
     return (_r6(slope), _r(intercept))
 
-
+"""
 def _fit_quadratic(xs: list[float], ys: list[float], ws: list[float]) -> tuple | None:
     if len(xs) < 3:
         return _fit_linear(xs, ys, ws)
@@ -501,8 +501,26 @@ def _fit_quadratic(xs: list[float], ys: list[float], ws: list[float]) -> tuple |
         return _fit_linear(xs, ys, ws)
     a, b, c_coef = result
     return (_r6(a), _r6(b), _r(c_coef))
-
-
+"""
+def _fit_quadratic(xs: list[float], ys: list[float], ws: list[float]) -> tuple | None:
+    """WLS quadratic through origin: pv ~ a*fc² + b*fc  (no free intercept).
+ 
+    Fixing the intercept to zero is physically correct (fc=0 → pv=0) and
+    prevents the model from memorising the historical mean as a constant offset,
+    which caused the corrected forecast to mirror the training data shape
+    rather than scaling the current raw forecast.
+ 
+    Falls back to linear if fewer than 3 points or the system is degenerate.
+    Returns (a, b, 0.0) so _predict uses the standard quadratic path with c=0.
+    """
+    if len(xs) < 3:
+        return _fit_linear(xs, ys, ws)
+    result = _wls2_origin_quad(xs, ys, ws)
+    if result is None:
+        return _fit_linear(xs, ys, ws)
+    a, b = result
+    return (_r6(a), _r6(b), 0.0)   # c fixed at 0
+ 
 # ---------------------------------------------------------------------------
 # WLS solvers
 # ---------------------------------------------------------------------------
@@ -523,6 +541,29 @@ def _wls2(xs: list[float], ys: list[float], ws: list[float]) -> tuple[float, flo
     return slope, intercept
 
 
+def _wls2_origin_quad(
+    xs: list[float], ys: list[float], ws: list[float]
+) -> tuple[float, float] | None:
+    """WLS quadratic through origin: y ~ a*x² + b*x  (no intercept).
+ 
+    The 2×2 normal equations are:
+      [Σw*x⁴  Σw*x³] [a]   [Σw*x²*y]
+      [Σw*x³  Σw*x²] [b] = [Σw*x*y  ]
+    """
+    swx2  = sum(w * x**2     for w, x    in zip(ws, xs))
+    swx3  = sum(w * x**3     for w, x    in zip(ws, xs))
+    swx4  = sum(w * x**4     for w, x    in zip(ws, xs))
+    swxy  = sum(w * x * y    for w, x, y in zip(ws, xs, ys))
+    swx2y = sum(w * x**2 * y for w, x, y in zip(ws, xs, ys))
+ 
+    det = swx4 * swx2 - swx3 ** 2
+    if abs(det) < 1e-12:
+        return None
+ 
+    a = (swx2y * swx2 - swxy  * swx3) / det
+    b = (swxy  * swx4 - swx2y * swx3) / det
+    return a, b
+ 
 def _wls3(
     xs: list[float], ys: list[float], ws: list[float]
 ) -> tuple[float, float, float] | None:
