@@ -3,20 +3,20 @@
 Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
 
   Aggregate (always present):
-    solar_forecast_hourly            – corrected Wh for the current hour
-                                       attr 'forecast': full {ts: Wh} dict
+    solar_forecast_hourly            – corrected Wh for the current 5-min slot
+                                       attr 'forecast': today's {ts: Wh} at native resolution
+                                       attr 'forecast_tomorrow': tomorrow's {hour-ts: Wh} hourly
     solar_forecast_today             – total corrected Wh for today
     solar_forecast_remaining         – corrected Wh remaining today (from now)
-    solar_forecast_hourly_raw        – raw (uncorrected) Wh for the current hour
+    solar_forecast_hourly_raw        – raw (uncorrected) Wh for the current slot
                                        attr 'forecast': full raw {ts: Wh} dict
 
   Per configured PV string (one sensor per non-empty pv_sensor_N config key):
-    solar_forecast_hourly_<slug>     – corrected Wh current hour for that string
-                                       attr 'forecast': per-string {ts: Wh} dict
+    solar_forecast_hourly_<slug>     – corrected Wh current slot for that string
+                                       attr 'forecast': per-string today {ts: Wh}
                                        attr 'pv_sensor': source entity_id
 
-  Note: slots whose hour-of-day has no fitted regression model are excluded
-  from the corrected forecast (no training data for that hour = no prediction).
+  Note: slots whose 5-min bucket has no fitted model default to 0.0.
 """
 from __future__ import annotations
 
@@ -34,10 +34,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from datetime import timedelta
+
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, PV_SENSOR_KEYS
-from .coordinator import CoordinatorData, ShadyCoordinator
+from .coordinator import CoordinatorData, ShadyCoordinator, _parse_dt
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,24 +99,36 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
     def _data(self) -> CoordinatorData:
         return self.coordinator.data or CoordinatorData()
 
-    @staticmethod
-    def _current_hour_value(slots: dict[str, float]) -> float | None:
+    def _current_slot_value(self, slots: dict[str, float]) -> float | None:
+        """Return the value for the current 5-min slot from a {ts: value} dict."""
         if not slots:
             return None
-        now = dt_util.now().replace(minute=0, second=0, microsecond=0)
-        key = now.isoformat()
+        now = dt_util.now()
+        # Snap to 5-min boundary
+        snapped_min = (now.minute // 5) * 5
+        now_snapped = now.replace(minute=snapped_min, second=0, microsecond=0)
+
+        key = now_snapped.isoformat()
         if key in slots:
             return slots[key]
-        # Fallback: match by date+hour prefix (handles timezone format variations)
-        prefix = now.strftime("%Y-%m-%dT%H:")
-        for ts, wh in slots.items():
+
+        # Fallback: match by date+hour+minute prefix
+        prefix = now_snapped.strftime("%Y-%m-%dT%H:%M")
+        for ts, val in slots.items():
             if ts.startswith(prefix):
-                return wh
+                return val
+
+        # Second fallback: current hour, any minute
+        hour_prefix = now_snapped.strftime("%Y-%m-%dT%H:")
+        for ts, val in slots.items():
+            if ts.startswith(hour_prefix):
+                return val
+
         return None
 
 
 # ---------------------------------------------------------------------------
-# Sensor 1: aggregate current hour
+# Sensor 1: aggregate current slot (corrected)
 # ---------------------------------------------------------------------------
 
 class SolarForecastCurrentSensor(_Base):
@@ -126,11 +140,14 @@ class SolarForecastCurrentSensor(_Base):
 
     @property
     def native_value(self) -> float | None:
-        return self._current_hour_value(self._data.forecast)
+        return self._current_slot_value(self._data.forecast_today)
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {"forecast": self._data.forecast}
+        return {
+            "forecast":          self._data.forecast_today,
+            "forecast_tomorrow": self._data.forecast_tomorrow,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +164,7 @@ class SolarForecastTodaySensor(_Base):
     @property
     def native_value(self) -> float | None:
         d = self._data
-        return d.today_total if d.forecast else None
+        return d.today_total if d.forecast_today else None
 
 
 # ---------------------------------------------------------------------------
@@ -164,12 +181,11 @@ class SolarForecastRemainingSensor(_Base):
     @property
     def native_value(self) -> float | None:
         d = self._data
-        return d.remaining if d.forecast else None
-
+        return d.remaining if d.forecast_today else None
 
 
 # ---------------------------------------------------------------------------
-# Sensor 4: raw current hour
+# Sensor 4: raw current slot
 # ---------------------------------------------------------------------------
 
 class SolarForecastCurrentRawSensor(_Base):
@@ -181,7 +197,7 @@ class SolarForecastCurrentRawSensor(_Base):
 
     @property
     def native_value(self) -> float | None:
-        return self._current_hour_value(self._data.raw_forecast)
+        return self._current_slot_value(self._data.raw_forecast)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -189,18 +205,16 @@ class SolarForecastCurrentRawSensor(_Base):
 
 
 # ---------------------------------------------------------------------------
-# Sensor 4+: per-string current hour
+# Sensor 5+: per-string current slot
 # ---------------------------------------------------------------------------
 
 def _entity_id_to_slug(entity_id: str) -> str:
-    """sensor.my_pv_string_1  →  my_pv_string_1"""
-    slug = entity_id.split(".", 1)[-1]          # strip domain prefix
-    slug = re.sub(r"[^a-z0-9]+", "_", slug.lower()).strip("_")
-    return slug
+    slug = entity_id.split(".", 1)[-1]
+    return re.sub(r"[^a-z0-9]+", "_", slug.lower()).strip("_")
 
 
 class SolarForecastStringCurrentSensor(_Base):
-    """Hourly corrected forecast for a single PV string."""
+    """Corrected forecast for a single PV string, current 5-min slot."""
 
     _attr_icon = "mdi:solar-panel"
 
@@ -208,25 +222,30 @@ class SolarForecastStringCurrentSensor(_Base):
         self,
         coordinator: ShadyCoordinator,
         entry: ConfigEntry,
-        conf_key: str,       # e.g. "pv_sensor_1"
-        pv_entity_id: str,   # e.g. "sensor.my_string_south"
+        conf_key: str,
+        pv_entity_id: str,
     ) -> None:
         slug = _entity_id_to_slug(pv_entity_id)
-        # unique_id uses conf_key so it stays stable even if entity_id is renamed
         super().__init__(coordinator, entry, f"solar_forecast_hourly_{conf_key}")
         self._pv_entity_id = pv_entity_id
-        # Human-readable name derived from the PV entity ID slug, e.g.
-        # "Solar Forecast Hourly solakon_one_string_1_leistung"
         self._attr_name = f"Solar Forecast Hourly {slug}"
 
     @property
     def native_value(self) -> float | None:
         slots = self._data.string_forecasts.get(self._pv_entity_id, {})
-        return self._current_hour_value(slots)
+        # Per-string dict contains all slots; filter to today for current lookup
+        now            = dt_util.now()
+        today_start    = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+        today_slots    = {
+            ts: wh for ts, wh in slots.items()
+            if today_start <= _parse_dt(ts) < tomorrow_start
+        }
+        return self._current_slot_value(today_slots or slots)
 
     @property
     def extra_state_attributes(self) -> dict:
         return {
-            "forecast": self._data.string_forecasts.get(self._pv_entity_id, {}),
-            "pv_sensor": self._pv_entity_id,
+            "forecast":   self._data.string_forecasts.get(self._pv_entity_id, {}),
+            "pv_sensor":  self._pv_entity_id,
         }

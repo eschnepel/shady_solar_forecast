@@ -17,9 +17,9 @@ DEFAULT_HISTORY_DAYS = 28
 DEFAULT_ALGORITHM    = "linear"
 
 # Algorithm choices
-ALGORITHM_FACTOR     = "factor"      # per-hour mean ratio: avg(pv) / avg(fc)
-ALGORITHM_LINEAR     = "linear"      # per-hour WLS: pv ~ slope*fc + intercept
-ALGORITHM_QUADRATIC  = "quadratic"   # per-hour WLS: pv ~ a*fc² + b*fc + c
+ALGORITHM_FACTOR     = "factor"      # per-5-min-bucket mean ratio: avg(pv) / avg(fc)
+ALGORITHM_LINEAR     = "linear"      # per-5-min-bucket WLS: pv ~ slope*fc + intercept
+ALGORITHM_QUADRATIC  = "quadratic"   # per-5-min-bucket WLS: pv ~ a*fc² + b*fc + c
 
 ALGORITHM_OPTIONS = [ALGORITHM_FACTOR, ALGORITHM_LINEAR, ALGORITHM_QUADRATIC]
 
