@@ -13,24 +13,29 @@
 Energy Dashboard forecast (Wh/slot, native provider resolution)
         │
         ▼
-┌──────────────────────────────────────────────────────────┐
-│  Per-string, per-5-min-bucket correction                 │
-│                                                          │
-│  For each PV string and each 5-min bucket (HH:MM):       │
-│    model(HH:MM) ← fitted over last N days of 5-min       │
-│                   recorder history                       │
-│                                                          │
-│  Corrected(slot) = max(0, predict(model(HH:MM), raw))    │
-│  Slots without a model → 0.0 (e.g. night)               │
-└──────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Per-string, per-5-min-bucket correction                    │
+│                                                             │
+│  Hourly provider (e.g. Forecast.Solar):                     │
+│    FC T10:00 = 400 Wh (sum for 10:00–11:00)                 │
+│    → applied to all 12 five-min buckets of that hour        │
+│    → predictions summed → corrected hourly Wh               │
+│                                                             │
+│  Sub-hourly provider (e.g. Solcast 30-min):                 │
+│    Each slot matched to its exact 5-min bucket              │
+│                                                             │
+│  Buckets without a model → 0.0 (e.g. night hours)          │
+└─────────────────────────────────────────────────────────────┘
         │
-        ├── Today   → native resolution (5-min or provider resolution)
+        ├── Today   → retains provider resolution (hourly or sub-hourly)
         └── Tomorrow → aggregated into full hours
 ```
 
 ### Why 5-Minute Buckets?
 
 A chimney that shades string 2 between 09:10 and 09:40 will only be visible in the data at 5-minute resolution. Hour-level models average it away; 5-minute models capture it precisely.
+
+For hourly forecast providers, the hourly Wh value is applied to all 12 five-minute bucket models of that hour. Each bucket contributes its own correction (reflecting shading at that specific time), and the 12 predictions are summed back into a single corrected hourly Wh value. If fewer than 12 buckets have fitted models, the result is scaled proportionally.
 
 ### Neighbour Smoothing
 
@@ -50,10 +55,10 @@ Three algorithms are available, all using the same per-5-min-bucket structure an
 |---|---|---|
 | **Factor** | `y = factor(B) × raw` | Simple setups, limited history |
 | **Linear** | `y = slope(B) × raw + intercept(B)` | General use (default) |
-| **Quadratic** | `y = a(B) × raw² + b(B) × raw + c(B)` | Non-linear shading effects |
+| **Quadratic** | `y = a(B) × raw² + b(B) × raw` | Non-linear shading (no free intercept) |
 
 All predictions are clamped to `max(0, predicted)`.  
-Quadratic falls back to linear if fewer than 3 training points are available.  
+Quadratic uses no free intercept (physically correct: fc=0 → pv=0) and falls back to linear if fewer than 3 training points are available.  
 If all string models fail, the raw forecast is passed through unchanged.
 
 ### Per-String Models
@@ -62,7 +67,7 @@ Up to 4 PV strings can be configured independently. Each string gets its own set
 
 ### Forecast Resolution
 
-- **Today**: native provider resolution (5-min for Solcast, hourly for Forecast.Solar)
+- **Today**: retains the provider's native resolution (hourly for Forecast.Solar, 30-min for Solcast)
 - **Tomorrow**: aggregated into full hours
 
 ### Persistence
@@ -126,7 +131,7 @@ All sensors are grouped under the **Shady** device. Values are rounded to 2 deci
 
 | Entity | Unit | Description |
 |---|---|---|
-| `sensor.shady_solar_forecast_hourly` | Wh | Corrected forecast for the **current 5-min slot** |
+| `sensor.shady_solar_forecast_hourly` | Wh | Corrected forecast for the **current slot** |
 | `sensor.shady_solar_forecast_today` | Wh | Total corrected forecast for **today** |
 | `sensor.shady_solar_forecast_remaining` | Wh | Corrected forecast for the **rest of today** |
 | `sensor.shady_solar_forecast_hourly_raw` | Wh | Raw (uncorrected) forecast for the current slot |
@@ -134,10 +139,10 @@ All sensors are grouped under the **Shady** device. Values are rounded to 2 deci
 The `solar_forecast_hourly` sensor carries two forecast attributes:
 
 ```yaml
-# Today at native resolution (5-min for Solcast, hourly for Forecast.Solar)
+# Today at provider resolution (hourly for Forecast.Solar, 30-min for Solcast)
 forecast:
-  "2025-05-23T12:05:00+02:00": 45.23
-  "2025-05-23T12:10:00+02:00": 47.81
+  "2025-05-23T10:00:00+02:00": 287.40   # hourly corrected Wh
+  "2025-05-23T11:00:00+02:00": 341.20
   ...
 
 # Tomorrow aggregated into full hours
@@ -151,7 +156,8 @@ The `solar_forecast_hourly_raw` sensor carries the full raw forecast:
 
 ```yaml
 forecast:
-  "2025-05-23T12:05:00+02:00": 62.00
+  "2025-05-23T10:00:00+02:00": 400.00
+  "2025-05-23T11:00:00+02:00": 480.00
   ...
 ```
 
@@ -173,8 +179,8 @@ Each per-string sensor carries a `forecast` attribute (today's string-specific `
 |---|---|
 | Less than 2–3 weeks of 5-min history | **Factor** – needs fewest data points |
 | Typical residential installation | **Linear** – good balance of accuracy and stability |
-| Non-linear shading (partial roof obstruction that grows with sun angle) | **Quadratic** – models curvature; needs more history for stable coefficients |
-| Quadratic produces implausible spikes | Switch back to **Linear** |
+| Non-linear shading (partial roof obstruction that grows with sun angle) | **Quadratic** – models curvature without intercept bias |
+| Quadratic produces implausible values | Switch back to **Linear** |
 
 ---
 
@@ -198,7 +204,7 @@ automation:
           entity_id: switch.dishwasher
 ```
 
-### Template sensor for a specific slot
+### Template sensor for a specific hour
 
 ```yaml
 template:
@@ -234,7 +240,7 @@ INFO  Bucket models for sensor.string_1: algorithm=linear  168 buckets
 DEBUG   bucket 09:05 → (0.288817, 3.09)
 DEBUG   bucket 09:10 → (0.271340, 2.84)
 ...
-INFO  Midday slot: raw=62.00 Wh  corrected=28.74 Wh
+INFO  Midday slot: raw=400.00 Wh  corrected=287.40 Wh
 ```
 
 | Symptom | Likely cause |

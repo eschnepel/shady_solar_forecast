@@ -39,7 +39,8 @@ from datetime import timedelta
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, PV_SENSOR_KEYS
-from .coordinator import CoordinatorData, ShadyCoordinator, _parse_dt
+from .coordinator import CoordinatorData, ShadyCoordinator
+from .math_utils import parse_dt as _parse_dt
 
 _LOGGER = logging.getLogger(__name__)
 
