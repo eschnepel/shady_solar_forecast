@@ -1,4 +1,5 @@
 """Tests for statistics.py – recorder row parsing."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ class TestStartParsing:
         """Create a mock row with object-style attributes."""
         row = MagicMock()
         row.start = start_val
-        row.mean  = mean_val
+        row.mean = mean_val
         return row
 
     def _make_dict_row(self, start_val, mean_val: float) -> dict:
@@ -32,7 +33,6 @@ class TestStartParsing:
 
     def test_object_row_with_datetime(self):
         """Object row where start is already a datetime."""
-        from shady.statistics import fetch_statistics
         # We test the inner logic by reconstructing it here
         row = self._make_row(dt(10), 100.0)
         v = row.start
@@ -59,7 +59,7 @@ class TestStartParsing:
 
         rows = [
             {"start": dt(10), "mean": 100.0},
-            {"start": dt(11), "mean": None},   # should be filtered
+            {"start": dt(11), "mean": None},  # should be filtered
             {"start": dt(12), "mean": 50.0},
         ]
 
@@ -69,14 +69,14 @@ class TestStartParsing:
             return mock_result
 
         mock_recorder = MagicMock()
-        mock_recorder.async_add_executor_job = AsyncMock(
-            side_effect=lambda fn: fn()
-        )
+        mock_recorder.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
 
         hass = MagicMock()
 
-        with patch("shady.statistics.statistics_during_period", mock_sdp), \
-             patch("shady.statistics.get_recorder", return_value=mock_recorder):
+        with (
+            patch("shady.statistics.statistics_during_period", mock_sdp),
+            patch("shady.statistics.get_recorder", return_value=mock_recorder),
+        ):
             result = await fetch_statistics(hass, ["sensor.test"], dt(0))
 
         rows_out = result.get("sensor.test", [])
@@ -95,14 +95,14 @@ class TestStartParsing:
             return mock_result
 
         mock_recorder = MagicMock()
-        mock_recorder.async_add_executor_job = AsyncMock(
-            side_effect=lambda fn: fn()
-        )
+        mock_recorder.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
 
         hass = MagicMock()
 
-        with patch("shady.statistics.statistics_during_period", mock_sdp), \
-             patch("shady.statistics.get_recorder", return_value=mock_recorder):
+        with (
+            patch("shady.statistics.statistics_during_period", mock_sdp),
+            patch("shady.statistics.get_recorder", return_value=mock_recorder),
+        ):
             result = await fetch_statistics(hass, ["sensor.pv"], dt(0))
 
         rows_out = result.get("sensor.pv", [])
@@ -122,14 +122,14 @@ class TestStartParsing:
             return mock_result
 
         mock_recorder = MagicMock()
-        mock_recorder.async_add_executor_job = AsyncMock(
-            side_effect=lambda fn: fn()
-        )
+        mock_recorder.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
 
         hass = MagicMock()
 
-        with patch("shady.statistics.statistics_during_period", mock_sdp), \
-             patch("shady.statistics.get_recorder", return_value=mock_recorder):
+        with (
+            patch("shady.statistics.statistics_during_period", mock_sdp),
+            patch("shady.statistics.get_recorder", return_value=mock_recorder),
+        ):
             result = await fetch_statistics(hass, ["sensor.pv"], dt(0))
 
         rows_out = result.get("sensor.pv", [])

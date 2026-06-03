@@ -1,9 +1,9 @@
 """Tests for models.py – bucket model building and prediction."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from shadylib.models import (
     predict,
@@ -11,7 +11,6 @@ from shadylib.models import (
     _fit_factor,
     _fit_linear,
     _fit_quadratic,
-    PV_MIN_W as _PV_MIN_W,
 )
 
 UTC = timezone.utc
@@ -28,6 +27,7 @@ def make_rows(pairs: list[tuple[datetime, float]], key: str = "mean") -> list[di
 # ---------------------------------------------------------------------------
 # predict
 # ---------------------------------------------------------------------------
+
 
 class TestPredict:
     def test_factor_model(self):
@@ -59,12 +59,13 @@ class TestPredict:
 # _fit_factor
 # ---------------------------------------------------------------------------
 
+
 class TestFitFactor:
     def test_simple_ratio(self):
         # pv is always half of fc
         xs = [100.0, 200.0, 300.0]
-        ys = [50.0,  100.0, 150.0]
-        ws = [1.0,   1.0,   1.0]
+        ys = [50.0, 100.0, 150.0]
+        ws = [1.0, 1.0, 1.0]
         model = _fit_factor(xs, ys, ws)
         assert model is not None
         assert len(model) == 1
@@ -83,19 +84,20 @@ class TestFitFactor:
     def test_weighted_ratio(self):
         # x=100→y=50 (high weight), x=100→y=100 (low weight)
         xs = [100.0, 100.0]
-        ys = [50.0,  100.0]
-        ws = [10.0,  1.0]
+        ys = [50.0, 100.0]
+        ws = [10.0, 1.0]
         model = _fit_factor(xs, ys, ws)
         assert model is not None
         # weighted avg pv ≈ (10*50 + 1*100)/11 ≈ 54.5
         # weighted avg fc = 100
         # factor ≈ 0.545
-        assert abs(model[0] - (10*50 + 100) / (11 * 100)) < 1e-4
+        assert abs(model[0] - (10 * 50 + 100) / (11 * 100)) < 1e-4
 
 
 # ---------------------------------------------------------------------------
 # _fit_linear
 # ---------------------------------------------------------------------------
+
 
 class TestFitLinear:
     def test_exact_linear(self):
@@ -126,6 +128,7 @@ class TestFitLinear:
 # ---------------------------------------------------------------------------
 # _fit_quadratic
 # ---------------------------------------------------------------------------
+
 
 class TestFitQuadratic:
     def test_falls_back_to_linear_for_small_input(self):
@@ -163,9 +166,16 @@ class TestFitQuadratic:
 # build_bucket_models
 # ---------------------------------------------------------------------------
 
+
 class TestBuildBucketModels:
-    def _rows(self, hour: int, minutes: list[int], fc_vals: list[float],
-              pv_vals: list[float], days: int = 30) -> tuple[list[dict], list[dict]]:
+    def _rows(
+        self,
+        hour: int,
+        minutes: list[int],
+        fc_vals: list[float],
+        pv_vals: list[float],
+        days: int = 30,
+    ) -> tuple[list[dict], list[dict]]:
         """Generate fc_rows and pv_rows for a given hour/minute across N days."""
         fc_rows, pv_rows = [], []
         for day in range(days):
@@ -202,37 +212,63 @@ class TestBuildBucketModels:
 
     def test_pv_all_below_threshold_returns_empty(self):
         """All curtailed data → no models."""
-        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(10)]
-        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 1.0} for i in range(10)]
+        fc_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(10)
+        ]
+        pv_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": 1.0} for i in range(10)
+        ]
         assert build_bucket_models(fc_rows, pv_rows, "linear") == {}
 
     def test_bucket_keys_are_snapped(self):
         """All keys should have minute ∈ {0,5,10,...,55}."""
-        fc_rows = [{"start": dt(10, m) + timedelta(days=d), "mean": 100.0}
-                   for d in range(30) for m in range(0, 60, 5)]
-        pv_rows = [{"start": dt(10, m) + timedelta(days=d), "mean": 50.0}
-                   for d in range(30) for m in range(0, 60, 5)]
+        fc_rows = [
+            {"start": dt(10, m) + timedelta(days=d), "mean": 100.0}
+            for d in range(30)
+            for m in range(0, 60, 5)
+        ]
+        pv_rows = [
+            {"start": dt(10, m) + timedelta(days=d), "mean": 50.0}
+            for d in range(30)
+            for m in range(0, 60, 5)
+        ]
         models = build_bucket_models(fc_rows, pv_rows, "linear")
-        for (h, m) in models:
+        for h, m in models:
             assert m % 5 == 0
 
     def test_factor_algorithm_produces_1_tuples(self):
-        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 200.0} for i in range(30)]
-        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(30)]
+        fc_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": 200.0} for i in range(30)
+        ]
+        pv_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(30)
+        ]
         models = build_bucket_models(fc_rows, pv_rows, "factor")
         for model in models.values():
             assert len(model) == 1
 
     def test_linear_algorithm_produces_2_tuples(self):
-        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": float(i+1)*10} for i in range(30)]
-        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": float(i+1)*5} for i in range(30)]
+        fc_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 10}
+            for i in range(30)
+        ]
+        pv_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 5}
+            for i in range(30)
+        ]
         models = build_bucket_models(fc_rows, pv_rows, "linear")
         for model in models.values():
             assert len(model) == 2
 
     def test_quadratic_algorithm_produces_3_tuples(self):
-        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": float(i+1)*10} for i in range(30)]
-        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": float(i+1)*5} for i in range(30)]
+        fc_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 10}
+            for i in range(30)
+        ]
+        pv_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 5}
+            for i in range(30)
+        ]
         models = build_bucket_models(fc_rows, pv_rows, "quadratic")
         for model in models.values():
             assert len(model) == 3
@@ -252,10 +288,16 @@ class TestBuildBucketModels:
         """
         # All three minutes present – (10,5) should be enriched by neighbours
         times = [dt(10, 0), dt(10, 5), dt(10, 10)]
-        fc_rows = [{"start": ts + timedelta(days=d), "mean": 100.0 + d * 5}
-                   for ts in times for d in range(30)]
-        pv_rows = [{"start": ts + timedelta(days=d), "mean": 50.0 + d * 2.5}
-                   for ts in times for d in range(30)]
+        fc_rows = [
+            {"start": ts + timedelta(days=d), "mean": 100.0 + d * 5}
+            for ts in times
+            for d in range(30)
+        ]
+        pv_rows = [
+            {"start": ts + timedelta(days=d), "mean": 50.0 + d * 2.5}
+            for ts in times
+            for d in range(30)
+        ]
         models = build_bucket_models(fc_rows, pv_rows, "linear")
         # All three buckets should be present
         assert (10, 0) in models
@@ -265,12 +307,16 @@ class TestBuildBucketModels:
         # Verify models are consistent (same slope since all data has same ratio)
         s0, _ = models[(10, 0)]
         s5, _ = models[(10, 5)]
-        assert abs(s0 - s5) < 0.05   # slopes should be similar due to shared data
+        assert abs(s0 - s5) < 0.05  # slopes should be similar due to shared data
 
     def test_correction_factor_applied_correctly(self):
         """With pv = 0.3 * fc consistently, factor model should give ~0.3."""
-        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 400.0} for i in range(60)]
-        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 120.0} for i in range(60)]
+        fc_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": 400.0} for i in range(60)
+        ]
+        pv_rows = [
+            {"start": dt(10, 0) + timedelta(days=i), "mean": 120.0} for i in range(60)
+        ]
         models = build_bucket_models(fc_rows, pv_rows, "factor")
         model = models.get((10, 0))
         assert model is not None

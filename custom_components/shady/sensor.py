@@ -18,6 +18,7 @@ Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
 
   Note: slots whose 5-min bucket has no fitted model default to 0.0.
 """
+
 from __future__ import annotations
 
 import logging
@@ -75,7 +76,8 @@ async def async_setup_entry(
 # Shared base
 # ---------------------------------------------------------------------------
 
-class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
+
+class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):  # type: ignore[misc]
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL
@@ -100,37 +102,52 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
     def _data(self) -> CoordinatorData:
         return self.coordinator.data or CoordinatorData()
 
-    def _current_slot_value(self, slots: dict[str, float]) -> float | None:
-        """Return the value for the current 5-min slot from a {ts: value} dict."""
-        if not slots:
-            return None
-        now = dt_util.now()
-        # Snap to 5-min boundary
-        snapped_min = (now.minute // 5) * 5
-        now_snapped = now.replace(minute=snapped_min, second=0, microsecond=0)
+    def _current_slot_value(self, slots: dict[str, float]) -> float:
+        """Return the value for the current time from a {ts: value} dict.
 
-        key = now_snapped.isoformat()
+        Lookup order:
+          1. Exact 5-min snapped key  (e.g. T10:15:00+…)
+          2. Prefix match on HH:MM    (handles tz-offset format variations)
+          3. Hourly key T10:00:00+…   (for raw_forecast and tomorrow slots)
+          4. Any slot starting with T10:  (current hour, any minute)
+          5. 0.0                          (night / no data)
+        """
+        if not slots:
+            return 0.0
+        now = dt_util.now().replace(second=0, microsecond=0)
+        snapped_min = (now.minute // 5) * 5
+        snapped = now.replace(minute=snapped_min)
+
+        # 1. Exact 5-min key
+        key = snapped.isoformat()
         if key in slots:
             return slots[key]
 
-        # Fallback: match by date+hour+minute prefix
-        prefix = now_snapped.strftime("%Y-%m-%dT%H:%M")
+        # 2. Prefix HH:MM match
+        prefix = snapped.strftime("%Y-%m-%dT%H:%M")
         for ts, val in slots.items():
             if ts.startswith(prefix):
                 return val
 
-        # Second fallback: current hour, any minute
-        hour_prefix = now_snapped.strftime("%Y-%m-%dT%H:")
+        # 3. Hourly key (raw_forecast uses minute=0 keys)
+        hour_key = now.replace(minute=0).isoformat()
+        if hour_key in slots:
+            return slots[hour_key]
+
+        # 4. Any slot in current hour
+        hour_prefix = snapped.strftime("%Y-%m-%dT%H:")
         for ts, val in slots.items():
             if ts.startswith(hour_prefix):
                 return val
 
-        return None
+        # 5. No slot for this time (e.g. night, no training data)
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
 # Sensor 1: aggregate current slot (corrected)
 # ---------------------------------------------------------------------------
+
 
 class SolarForecastCurrentSensor(_Base):
     _attr_name = "Solar Forecast Hourly"
@@ -144,9 +161,9 @@ class SolarForecastCurrentSensor(_Base):
         return self._current_slot_value(self._data.forecast_today)
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, object]:
         return {
-            "forecast":          self._data.forecast_today,
+            "forecast": self._data.forecast_today,
             "forecast_tomorrow": self._data.forecast_tomorrow,
         }
 
@@ -154,6 +171,7 @@ class SolarForecastCurrentSensor(_Base):
 # ---------------------------------------------------------------------------
 # Sensor 2: today total
 # ---------------------------------------------------------------------------
+
 
 class SolarForecastTodaySensor(_Base):
     _attr_name = "Solar Forecast Today"
@@ -172,6 +190,7 @@ class SolarForecastTodaySensor(_Base):
 # Sensor 3: remaining today
 # ---------------------------------------------------------------------------
 
+
 class SolarForecastRemainingSensor(_Base):
     _attr_name = "Solar Forecast Remaining"
     _attr_icon = "mdi:solar-power-variant"
@@ -189,6 +208,7 @@ class SolarForecastRemainingSensor(_Base):
 # Sensor 4: raw current slot
 # ---------------------------------------------------------------------------
 
+
 class SolarForecastCurrentRawSensor(_Base):
     _attr_name = "Solar Forecast Hourly Raw"
     _attr_icon = "mdi:solar-power-variant-outline"
@@ -201,13 +221,14 @@ class SolarForecastCurrentRawSensor(_Base):
         return self._current_slot_value(self._data.raw_forecast)
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, object]:
         return {"forecast": self._data.raw_forecast}
 
 
 # ---------------------------------------------------------------------------
 # Sensor 5+: per-string current slot
 # ---------------------------------------------------------------------------
+
 
 def _entity_id_to_slug(entity_id: str) -> str:
     slug = entity_id.split(".", 1)[-1]
@@ -235,18 +256,19 @@ class SolarForecastStringCurrentSensor(_Base):
     def native_value(self) -> float | None:
         slots = self._data.string_forecasts.get(self._pv_entity_id, {})
         # Per-string dict contains all slots; filter to today for current lookup
-        now            = dt_util.now()
-        today_start    = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        now = dt_util.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
-        today_slots    = {
-            ts: wh for ts, wh in slots.items()
+        today_slots = {
+            ts: wh
+            for ts, wh in slots.items()
             if today_start <= _parse_dt(ts) < tomorrow_start
         }
-        return self._current_slot_value(today_slots or slots)
+        return self._current_slot_value(today_slots)
 
     @property
-    def extra_state_attributes(self) -> dict:
+    def extra_state_attributes(self) -> dict[str, object]:
         return {
-            "forecast":   self._data.string_forecasts.get(self._pv_entity_id, {}),
-            "pv_sensor":  self._pv_entity_id,
+            "forecast": self._data.string_forecasts.get(self._pv_entity_id, {}),
+            "pv_sensor": self._pv_entity_id,
         }

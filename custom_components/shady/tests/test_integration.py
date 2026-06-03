@@ -4,11 +4,11 @@ These tests exercise the interaction between build_bucket_models,
 predict, aggregate_to_hours, and the hourly-expansion logic
 that mirrors _apply_corrections in coordinator.py.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 
 from shady.math_utils import r, snap, aggregate_to_hours
 from shady.models import build_bucket_models, predict
@@ -35,7 +35,7 @@ def simulate_correction(
     result: dict[str, float] = {}
     for iso_ts, raw_wh in raw.items():
         slot_dt = datetime.fromisoformat(iso_ts)
-        is_hourly = (slot_dt.minute == 0)
+        is_hourly = slot_dt.minute == 0
 
         if is_hourly:
             for mm in range(0, 60, BUCKET_MIN):
@@ -54,8 +54,9 @@ def simulate_correction(
 
 
 class TestHourlyExpansion:
-    def _make_training(self, fc_val: float, pv_val: float, hour: int,
-                       days: int = 60) -> tuple[list[dict], list[dict]]:
+    def _make_training(
+        self, fc_val: float, pv_val: float, hour: int, days: int = 60
+    ) -> tuple[list[dict], list[dict]]:
         """Generate training rows with realistic daily variation to avoid
         degenerate (zero-variance) regression inputs."""
         fc_rows, pv_rows = [], []
@@ -110,15 +111,21 @@ class TestHourlyExpansion:
         result = simulate_correction(raw, fc_rows, pv_rows, algorithm="factor")
 
         unshaded = result.get("2025-06-01T10:00:00+00:00", 0)
-        shaded   = result.get("2025-06-01T10:15:00+00:00", 0)
+        shaded = result.get("2025-06-01T10:15:00+00:00", 0)
         assert shaded < unshaded * 0.5
 
     def test_no_negative_values(self):
         """All corrected values must be >= 0."""
-        fc_rows = [{"start": dt(10, mm) + timedelta(days=d), "mean": float(d+1)*10}
-                   for d in range(30) for mm in range(0, 60, BUCKET_MIN)]
-        pv_rows = [{"start": dt(10, mm) + timedelta(days=d), "mean": float(d+1)*3}
-                   for d in range(30) for mm in range(0, 60, BUCKET_MIN)]
+        fc_rows = [
+            {"start": dt(10, mm) + timedelta(days=d), "mean": float(d + 1) * 10}
+            for d in range(30)
+            for mm in range(0, 60, BUCKET_MIN)
+        ]
+        pv_rows = [
+            {"start": dt(10, mm) + timedelta(days=d), "mean": float(d + 1) * 3}
+            for d in range(30)
+            for mm in range(0, 60, BUCKET_MIN)
+        ]
         raw = {"2025-06-01T10:00:00+00:00": 5.0}
         result = simulate_correction(raw, fc_rows, pv_rows)
         for val in result.values():

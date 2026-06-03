@@ -4,12 +4,14 @@ Calls each solar forecast platform's async_get_solar_forecast() function,
 which is the same mechanism used by the Energy Dashboard internally.
 Returns a flat {ISO-timestamp: Wh} dict aggregated across all sources.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from homeassistant.components.energy import async_get_manager as async_get_energy_manager
+from homeassistant.components.energy import (
+    async_get_manager as async_get_energy_manager,
+)
 from homeassistant.components.energy.websocket_api import async_get_energy_platforms
 from homeassistant.core import HomeAssistant
 

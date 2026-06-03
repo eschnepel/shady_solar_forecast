@@ -1,4 +1,5 @@
 """Config flow for Shady."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,16 +12,22 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
 from .const import (
-    DOMAIN, DEFAULT_NAME,
-    CONF_FC_SENSOR, CONF_HISTORY_DAYS, CONF_ALGORITHM,
-    CONF_PV_SENSOR_1, CONF_PV_SENSOR_2, CONF_PV_SENSOR_3, CONF_PV_SENSOR_4,
-    DEFAULT_FC_SENSOR, DEFAULT_HISTORY_DAYS, DEFAULT_ALGORITHM,
+    DOMAIN,
+    DEFAULT_NAME,
+    CONF_FC_SENSOR,
+    CONF_HISTORY_DAYS,
+    CONF_ALGORITHM,
+    CONF_PV_SENSOR_1,
+    CONF_PV_SENSOR_2,
+    CONF_PV_SENSOR_3,
+    CONF_PV_SENSOR_4,
+    DEFAULT_FC_SENSOR,
+    DEFAULT_HISTORY_DAYS,
+    DEFAULT_ALGORITHM,
     ALGORITHM_OPTIONS,
 )
 
-_ENTITY_SEL = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain="sensor")
-)
+_ENTITY_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 _ENTITY_SEL_OPT = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", multiple=False)
 )
@@ -33,23 +40,36 @@ _ALGORITHM_SEL = selector.SelectSelector(
 )
 
 
-def _schema(d: dict) -> vol.Schema:
+def _schema(d: dict) -> vol.Schema:  # type: ignore[type-arg]
     def _get(key: str, default: Any = "") -> Any:
         return d.get(key, default)
 
-    return vol.Schema({
-        vol.Required(CONF_FC_SENSOR,   default=_get(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)): _ENTITY_SEL,
-        vol.Required(CONF_PV_SENSOR_1, default=_get(CONF_PV_SENSOR_1)): _ENTITY_SEL,
-        vol.Optional(CONF_PV_SENSOR_2, default=_get(CONF_PV_SENSOR_2)): _ENTITY_SEL_OPT,
-        vol.Optional(CONF_PV_SENSOR_3, default=_get(CONF_PV_SENSOR_3)): _ENTITY_SEL_OPT,
-        vol.Optional(CONF_PV_SENSOR_4, default=_get(CONF_PV_SENSOR_4)): _ENTITY_SEL_OPT,
-        vol.Optional(CONF_HISTORY_DAYS, default=_get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)):
-            vol.All(int, vol.Range(min=7, max=365)),
-        vol.Required(CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)): _ALGORITHM_SEL,
-    })
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_FC_SENSOR, default=_get(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)
+            ): _ENTITY_SEL,
+            vol.Required(CONF_PV_SENSOR_1, default=_get(CONF_PV_SENSOR_1)): _ENTITY_SEL,
+            vol.Optional(
+                CONF_PV_SENSOR_2, default=_get(CONF_PV_SENSOR_2)
+            ): _ENTITY_SEL_OPT,
+            vol.Optional(
+                CONF_PV_SENSOR_3, default=_get(CONF_PV_SENSOR_3)
+            ): _ENTITY_SEL_OPT,
+            vol.Optional(
+                CONF_PV_SENSOR_4, default=_get(CONF_PV_SENSOR_4)
+            ): _ENTITY_SEL_OPT,
+            vol.Optional(
+                CONF_HISTORY_DAYS, default=_get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
+            ): vol.All(int, vol.Range(min=7, max=365)),
+            vol.Required(
+                CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
+            ): _ALGORITHM_SEL,
+        }
+    )
 
 
-class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
     VERSION = 1
 
     async def async_step_user(
@@ -62,12 +82,12 @@ class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="user", data_schema=_schema({}))
 
     @staticmethod
-    @callback
+    @callback  # type: ignore[untyped-decorator]
     def async_get_options_flow(entry: config_entries.ConfigEntry) -> _OptionsFlow:
         return _OptionsFlow(entry)
 
 
-class _OptionsFlow(config_entries.OptionsFlow):
+class _OptionsFlow(config_entries.OptionsFlow):  # type: ignore[misc]
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
         self._entry = entry
 

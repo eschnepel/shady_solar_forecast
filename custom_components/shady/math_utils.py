@@ -3,6 +3,7 @@
 Everything pure-Python is delegated to shadylib.
 parse_dt is overridden here to use HA's UTC constant for consistency.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,8 +23,15 @@ from shadylib.math_utils import (
 )
 
 __all__ = [
-    "r", "r6", "snap", "parse_dt", "aggregate_to_hours",
-    "wls2", "wls2_origin_quad", "BUCKET_MIN", "PRECISION",
+    "r",
+    "r6",
+    "snap",
+    "parse_dt",
+    "aggregate_to_hours",
+    "wls2",
+    "wls2_origin_quad",
+    "BUCKET_MIN",
+    "PRECISION",
 ]
 
 
