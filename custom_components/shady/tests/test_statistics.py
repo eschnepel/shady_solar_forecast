@@ -21,14 +21,14 @@ class TestStartParsing:
     mocked recorder results in each row format HA versions can return.
     """
 
-    def _make_row(self, start_val, mean_val: float) -> object:
+    def _make_row(self, start_val:datetime, mean_val: float) -> object:
         """Create a mock row with object-style attributes."""
         row = MagicMock()
         row.start = start_val
         row.mean = mean_val
         return row
 
-    def _make_dict_row(self, start_val, mean_val: float) -> dict:
+    def _make_dict_row(self, start_val:float, mean_val: float) -> dict[str, float]:
         return {"start": start_val, "mean": mean_val}
 
     def test_object_row_with_datetime(self):
@@ -43,7 +43,7 @@ class TestStartParsing:
         ts = datetime(2025, 6, 1, 10, 0, tzinfo=UTC).timestamp()
         row = {"start": ts, "mean": 100.0}
         # Simulate _start logic
-        v = row.get("start")
+        v = row["start"]
         result = datetime.fromtimestamp(v, tz=UTC)
         assert result.hour == 10
 
