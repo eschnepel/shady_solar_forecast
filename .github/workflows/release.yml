@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout shady_solar_forecast
+        uses: actions/checkout@v6
+        with:
+          path: shady_solar_forecast
+
+      - name: Checkout shadylib
+        uses: actions/checkout@v6
+        with:
+          repository: eschnepel/shadylib
+          path: shadylib
+
+      - name: Vendor shadylib into custom_components
+        run: |
+          cp -r shadylib/src/shadylib \
+            shady_solar_forecast/custom_components/shady/shadylib
+
+      - name: Build release ZIP
+        run: |
+          cd shady_solar_forecast
+          zip -r ../shady_solar_forecast.zip custom_components/
+          cd ..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: shady_solar_forecast.zip
+          generate_release_notes: true
