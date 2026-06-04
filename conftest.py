@@ -89,6 +89,7 @@ _stub(
 # Mirror the vendored-shadylib logic from shady/__init__.py so tests
 # can import `from shadylib.X import Y` without a pip-installed shadylib.
 import sys as _sys  # noqa: E402
+
 _lib = "shadylib"
 try:
     __import__(_lib)
