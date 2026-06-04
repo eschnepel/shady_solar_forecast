@@ -59,9 +59,7 @@ _stub(
     async_get_energy_platforms=MagicMock(),
 )
 _stub("homeassistant.components.recorder", get_instance=MagicMock())
-_stub(
-    "homeassistant.components.recorder.statistics", statistics_during_period=MagicMock()
-)
+_stub("homeassistant.components.recorder.statistics", statistics_during_period=MagicMock())
 _stub(
     "homeassistant.components.sensor",
     SensorEntity=_GenericBase,

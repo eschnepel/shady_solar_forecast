@@ -65,9 +65,7 @@ async def async_setup_entry(
     for key in PV_SENSOR_KEYS:
         entity_id = d.get(key, "")
         if entity_id:
-            entities.append(
-                SolarForecastStringCurrentSensor(coordinator, entry, key, entity_id)
-            )
+            entities.append(SolarForecastStringCurrentSensor(coordinator, entry, key, entity_id))
 
     async_add_entities(entities)
 
@@ -260,9 +258,7 @@ class SolarForecastStringCurrentSensor(_Base):
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
         today_slots = {
-            ts: wh
-            for ts, wh in slots.items()
-            if today_start <= _parse_dt(ts) < tomorrow_start
+            ts: wh for ts, wh in slots.items() if today_start <= _parse_dt(ts) < tomorrow_start
         }
         return self._current_slot_value(today_slots)
 

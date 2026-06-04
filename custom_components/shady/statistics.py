@@ -57,14 +57,10 @@ async def fetch_statistics(
         )
         return {
             sid: [
-                {"start": _start(row), "mean": _mean(row)}
-                for row in rows
-                if _mean(row) is not None
+                {"start": _start(row), "mean": _mean(row)} for row in rows if _mean(row) is not None
             ]
             for sid, rows in result.items()
         }
 
-    res: dict[str, list[dict[str, Any]]] = await get_recorder(
-        hass
-    ).async_add_executor_job(_query)
+    res: dict[str, list[dict[str, Any]]] = await get_recorder(hass).async_add_executor_job(_query)
     return res

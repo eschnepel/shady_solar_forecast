@@ -8,9 +8,7 @@ import pytest
 
 
 class TestFetchRawForecast:
-    def _make_hass(
-        self, energy_data: dict, platforms: dict, config_entries: dict
-    ) -> tuple:
+    def _make_hass(self, energy_data: dict, platforms: dict, config_entries: dict) -> tuple:
         hass = MagicMock()
 
         manager = MagicMock()
@@ -36,9 +34,7 @@ class TestFetchRawForecast:
         manager = MagicMock()
         manager.data = None
 
-        with patch(
-            "shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)
-        ):
+        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
@@ -50,9 +46,7 @@ class TestFetchRawForecast:
         manager = MagicMock()
         manager.data = {"energy_sources": [{"type": "grid"}]}
 
-        with patch(
-            "shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)
-        ):
+        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
@@ -62,13 +56,9 @@ class TestFetchRawForecast:
 
         hass = MagicMock()
         manager = MagicMock()
-        manager.data = {
-            "energy_sources": [{"type": "solar", "config_entry_solar_forecast": []}]
-        }
+        manager.data = {"energy_sources": [{"type": "solar", "config_entry_solar_forecast": []}]}
 
-        with patch(
-            "shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)
-        ):
+        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
@@ -91,9 +81,7 @@ class TestFetchRawForecast:
 
         ce = MagicMock()
         ce.domain = "forecast_solar"
-        hass.config_entries.async_get_entry = lambda eid: (
-            ce if eid == entry_id else None
-        )
+        hass.config_entries.async_get_entry = lambda eid: ce if eid == entry_id else None
 
         forecast_data = {
             entry_id: {

@@ -119,9 +119,7 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             self.async_set_updated_data(CoordinatorData.from_dict(stored))
 
         manager = await async_get_energy_manager(self.hass)
-        self._unsub_listener = manager.async_listen_updates(
-            self._on_energy_manager_update
-        )
+        self._unsub_listener = manager.async_listen_updates(self._on_energy_manager_update)
         await self.async_refresh()
 
     async def _on_energy_manager_update(self) -> None:
@@ -166,16 +164,10 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         day_after = tomorrow_start + timedelta(days=1)
 
         forecast_today = {
-            ts: wh
-            for ts, wh in corrected.items()
-            if today_start <= parse_dt(ts) < tomorrow_start
+            ts: wh for ts, wh in corrected.items() if today_start <= parse_dt(ts) < tomorrow_start
         }
         forecast_tomorrow = aggregate_to_hours(
-            {
-                ts: wh
-                for ts, wh in corrected.items()
-                if tomorrow_start <= parse_dt(ts) < day_after
-            }
+            {ts: wh for ts, wh in corrected.items() if tomorrow_start <= parse_dt(ts) < day_after}
         )
 
         # Aggregate 5-min sub-slots back to hourly before summing,

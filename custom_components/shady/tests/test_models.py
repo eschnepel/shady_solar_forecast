@@ -212,12 +212,8 @@ class TestBuildBucketModels:
 
     def test_pv_all_below_threshold_returns_empty(self):
         """All curtailed data → no models."""
-        fc_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(10)
-        ]
-        pv_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": 1.0} for i in range(10)
-        ]
+        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(10)]
+        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 1.0} for i in range(10)]
         assert build_bucket_models(fc_rows, pv_rows, "linear") == {}
 
     def test_bucket_keys_are_snapped(self):
@@ -237,24 +233,18 @@ class TestBuildBucketModels:
             assert m % 5 == 0
 
     def test_factor_algorithm_produces_1_tuples(self):
-        fc_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": 200.0} for i in range(30)
-        ]
-        pv_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(30)
-        ]
+        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 200.0} for i in range(30)]
+        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 100.0} for i in range(30)]
         models = build_bucket_models(fc_rows, pv_rows, "factor")
         for model in models.values():
             assert len(model) == 1
 
     def test_linear_algorithm_produces_2_tuples(self):
         fc_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 10}
-            for i in range(30)
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 10} for i in range(30)
         ]
         pv_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 5}
-            for i in range(30)
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 5} for i in range(30)
         ]
         models = build_bucket_models(fc_rows, pv_rows, "linear")
         for model in models.values():
@@ -262,12 +252,10 @@ class TestBuildBucketModels:
 
     def test_quadratic_algorithm_produces_3_tuples(self):
         fc_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 10}
-            for i in range(30)
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 10} for i in range(30)
         ]
         pv_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 5}
-            for i in range(30)
+            {"start": dt(10, 0) + timedelta(days=i), "mean": float(i + 1) * 5} for i in range(30)
         ]
         models = build_bucket_models(fc_rows, pv_rows, "quadratic")
         for model in models.values():
@@ -311,12 +299,8 @@ class TestBuildBucketModels:
 
     def test_correction_factor_applied_correctly(self):
         """With pv = 0.3 * fc consistently, factor model should give ~0.3."""
-        fc_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": 400.0} for i in range(60)
-        ]
-        pv_rows = [
-            {"start": dt(10, 0) + timedelta(days=i), "mean": 120.0} for i in range(60)
-        ]
+        fc_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 400.0} for i in range(60)]
+        pv_rows = [{"start": dt(10, 0) + timedelta(days=i), "mean": 120.0} for i in range(60)]
         models = build_bucket_models(fc_rows, pv_rows, "factor")
         model = models.get((10, 0))
         assert model is not None
