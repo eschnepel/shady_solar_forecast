@@ -40,7 +40,7 @@ _ALGORITHM_SEL = selector.SelectSelector(
 )
 
 
-def _schema(d: dict) -> vol.Schema:  # type: ignore[type-arg]
+def _schema(d: dict) -> vol.Schema:
     def _get(key: str, default: Any = "") -> Any:
         return d.get(key, default)
 
@@ -69,7 +69,7 @@ def _schema(d: dict) -> vol.Schema:  # type: ignore[type-arg]
     )
 
 
-class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
+class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     VERSION = 1
 
     async def async_step_user(
@@ -82,12 +82,12 @@ class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
         return self.async_show_form(step_id="user", data_schema=_schema({}))
 
     @staticmethod
-    @callback  # type: ignore[untyped-decorator]
+    @callback
     def async_get_options_flow(entry: config_entries.ConfigEntry) -> _OptionsFlow:
         return _OptionsFlow(entry)
 
 
-class _OptionsFlow(config_entries.OptionsFlow):  # type: ignore[misc]
+class _OptionsFlow(config_entries.OptionsFlow):
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
         self._entry = entry
 

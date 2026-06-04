@@ -92,7 +92,7 @@ class CoordinatorData:
 # ---------------------------------------------------------------------------
 
 
-class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):  # type: ignore[misc]
+class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=_FALLBACK_INTERVAL)
         self._entry = entry
