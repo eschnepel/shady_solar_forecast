@@ -90,7 +90,7 @@ _stub(
 
 # Mirror the vendored-shadylib logic from shady/__init__.py so tests
 # can import `from shadylib.X import Y` without a pip-installed shadylib.
-import sys as _sys
+import sys as _sys  # noqa: E402
 
 _lib = "shadylib"
 if _lib not in _sys.modules:
@@ -116,6 +116,8 @@ if _lib not in _sys.modules:
                 continue
             _fn = f"shadylib.{_f.stem}"
             _sp = _ilu.spec_from_file_location(_fn, _f)
+            if _sp is None or _sp.loader is None:
+                continue
             _m = _ilu.module_from_spec(_sp)
             _m.__package__ = module_name
             _sys.modules[_fn] = _m
@@ -124,11 +126,12 @@ if _lib not in _sys.modules:
         _isp = _ilu.spec_from_file_location(
             module_name, _init_loc, submodule_search_locations=[str(_vd)]
         )
-        _isp.loader.exec_module(_pkg)
+        if _isp is not None and _isp.loader is not None:
+            _isp.loader.exec_module(_pkg)
         return True
 
     _dir = _P(__file__).parent / "custom_components" / "shady"
-    _e = None
+    _e: ImportError | None = None
     try:
         if not _vendored_import(str(_dir / _lib), _lib):
             _e = ImportError(str(_dir / _lib))
@@ -142,22 +145,22 @@ if _lib not in _sys.modules:
                 if _vendored_import(str(_dir / _lib), _lib):
                     _e = None
                     continue
-            except:
+            except Exception:  # noqa: BLE001
                 pass
             try:
                 if _vendored_import(str(_dir / _lib / _lib), _lib):
                     _e = None
                     continue
-            except:
+            except Exception:  # noqa: BLE001
                 pass
             try:
                 if _vendored_import(str(_dir / _lib / "src" / _lib), _lib):
-                    e = None
+                    _e = None
                     continue
-            except:
+            except Exception:  # noqa: BLE001
                 pass
-        if e is not None:
-            raise e
+        if _e is not None:
+            raise _e
         print("found", _lib, "at", _dir)
     del _vendored_import, _P, _dir, _e
 del _sys, _lib
