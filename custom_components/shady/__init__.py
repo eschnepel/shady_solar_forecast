@@ -81,7 +81,7 @@ elif _lib not in _sys.modules:
                 pass
         if _e is not None:
             raise _e
-        print("found", _lib, "at", _dir)
+        logging.getLogger(__name__).debug("found %s at %s", _lib, _dir)
     del _vendored_import, _P, _dir, _e
 del _sys, _lib, _iutil
 
