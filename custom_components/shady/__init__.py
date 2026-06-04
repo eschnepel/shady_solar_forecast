@@ -8,12 +8,15 @@ import logging
 # Register shady.shadylib submodules under the `shadylib` namespace so that
 # `from shadylib.math_utils import r` works without pip install.
 import sys as _sys
-import importlib.util as _iutil
 
 _lib = "shadylib"
-if _iutil.find_spec(_lib) is not None:
-    pass  # already pip/uv-installed, nothing to do
-elif _lib not in _sys.modules:
+try:
+    __import__(_lib)
+except ImportError as err:
+    logging.getLogger(__name__).debug(
+        "Direct import of %s failed, trying vendored copy: %s", _lib, err
+    )
+if _lib not in _sys.modules:
     from pathlib import Path as _P
 
     def _vendored_import(module_path: str, module_name: str) -> bool:
@@ -83,7 +86,7 @@ elif _lib not in _sys.modules:
             raise _e
         logging.getLogger(__name__).debug("found %s at %s", _lib, _dir)
     del _vendored_import, _P, _dir, _e
-del _sys, _lib, _iutil
+del _sys, _lib
 
 from homeassistant.config_entries import ConfigEntry  # noqa: E402
 from homeassistant.const import Platform  # noqa: E402
