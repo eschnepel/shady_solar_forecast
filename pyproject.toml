@@ -34,6 +34,21 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["custom_components"]
 
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["E", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"conftest.py" = ["E402", "F821"]
+"custom_components/shady/__init__.py" = ["F821"]
+
 [tool.pytest.ini_options]
 testpaths = ["custom_components/shady/tests"]
 asyncio_mode = "auto"
