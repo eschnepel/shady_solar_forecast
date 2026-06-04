@@ -12,8 +12,8 @@ import sys as _sys
 _lib = "shadylib"
 try:
     __import__(_lib)
-except ImportError:
-    pass
+except ImportError as err:
+    logging.getLogger(__name__).debug("Direct import of %s failed, trying vendored copy: %s", _lib, err)
 if _lib not in _sys.modules:
     from pathlib import Path as _P
 
