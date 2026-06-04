@@ -1,4 +1,5 @@
 """Tests for math_utils.py – pure helpers, no HA needed beyond the stub."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -6,7 +7,13 @@ from datetime import datetime, timezone
 import pytest
 
 from shady.math_utils import (
-    r, r6, snap, parse_dt, aggregate_to_hours, wls2, wls2_origin_quad,
+    r,
+    r6,
+    snap,
+    parse_dt,
+    aggregate_to_hours,
+    wls2,
+    wls2_origin_quad,
 )
 
 UTC = timezone.utc
@@ -15,6 +22,7 @@ UTC = timezone.utc
 # ---------------------------------------------------------------------------
 # r / r6
 # ---------------------------------------------------------------------------
+
 
 class TestRounding:
     def test_r_rounds_to_2(self):
@@ -37,19 +45,23 @@ class TestRounding:
 # snap
 # ---------------------------------------------------------------------------
 
+
 class TestSnap:
-    @pytest.mark.parametrize("minute,expected", [
-        (0,  0),
-        (1,  0),
-        (4,  0),
-        (5,  5),
-        (9,  5),
-        (10, 10),
-        (29, 25),
-        (30, 30),
-        (55, 55),
-        (59, 55),
-    ])
+    @pytest.mark.parametrize(
+        "minute,expected",
+        [
+            (0, 0),
+            (1, 0),
+            (4, 0),
+            (5, 5),
+            (9, 5),
+            (10, 10),
+            (29, 25),
+            (30, 30),
+            (55, 55),
+            (59, 55),
+        ],
+    )
     def test_snap(self, minute, expected):
         assert snap(minute) == expected
 
@@ -57,6 +69,7 @@ class TestSnap:
 # ---------------------------------------------------------------------------
 # parse_dt
 # ---------------------------------------------------------------------------
+
 
 class TestParseDt:
     def test_valid_iso_with_tz(self):
@@ -79,6 +92,7 @@ class TestParseDt:
 # ---------------------------------------------------------------------------
 # aggregate_to_hours
 # ---------------------------------------------------------------------------
+
 
 class TestAggregateToHours:
     def test_5min_slots_sum_to_hour(self):
@@ -132,6 +146,7 @@ class TestAggregateToHours:
 # wls2 – linear regression
 # ---------------------------------------------------------------------------
 
+
 class TestWls2:
     def test_perfect_linear(self):
         """y = 2x + 1 should be recovered exactly."""
@@ -160,9 +175,9 @@ class TestWls2:
     def test_weighted_regression(self):
         """High-weight points should dominate the fit."""
         # Points near y=2x get high weight; outlier gets near-zero weight
-        xs = [1.0,  2.0,  3.0,  4.0,  50.0]
-        ys = [2.0,  4.0,  6.0,  8.0,   0.0]   # outlier at x=50
-        ws = [10.0, 10.0, 10.0, 10.0,  0.001]  # outlier almost ignored
+        xs = [1.0, 2.0, 3.0, 4.0, 50.0]
+        ys = [2.0, 4.0, 6.0, 8.0, 0.0]  # outlier at x=50
+        ws = [10.0, 10.0, 10.0, 10.0, 0.001]  # outlier almost ignored
         result = wls2(xs, ys, ws)
         assert result is not None
         slope, intercept = result
@@ -173,6 +188,7 @@ class TestWls2:
     def test_noisy_data_reasonable_fit(self):
         """Noisy but roughly linear data returns sensible slope."""
         import random
+
         random.seed(42)
         xs = [float(i) for i in range(1, 21)]
         ys = [2.0 * x + 1.0 + random.gauss(0, 0.5) for x in xs]
@@ -191,11 +207,12 @@ class TestWls2:
 # wls2_origin_quad – quadratic through origin
 # ---------------------------------------------------------------------------
 
+
 class TestWls2OriginQuad:
     def test_perfect_quadratic_through_origin(self):
         """y = 2x² + 3x should be recovered."""
         xs = [1.0, 2.0, 3.0, 4.0, 5.0]
-        ys = [2*x**2 + 3*x for x in xs]
+        ys = [2 * x**2 + 3 * x for x in xs]
         ws = [1.0] * 5
         result = wls2_origin_quad(xs, ys, ws)
         assert result is not None
@@ -223,7 +240,7 @@ class TestWls2OriginQuad:
     def test_prediction_at_zero_is_zero(self):
         """Because model goes through origin, predict at x=0 must give ~0."""
         xs = [1.0, 2.0, 3.0, 4.0, 5.0]
-        ys = [2*x**2 + x for x in xs]
+        ys = [2 * x**2 + x for x in xs]
         ws = [1.0] * 5
         result = wls2_origin_quad(xs, ys, ws)
         assert result is not None

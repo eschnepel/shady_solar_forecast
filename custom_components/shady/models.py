@@ -12,8 +12,12 @@ from shadylib.models import (
 )
 
 __all__ = [
-    "BucketKey", "BucketModels",
-    "build_bucket_models", "predict",
+    "BucketKey",
+    "BucketModels",
+    "build_bucket_models",
+    "predict",
     "PV_MIN_W",
-    "ALGORITHM_FACTOR", "ALGORITHM_LINEAR", "ALGORITHM_QUADRATIC",
+    "ALGORITHM_FACTOR",
+    "ALGORITHM_LINEAR",
+    "ALGORITHM_QUADRATIC",
 ]

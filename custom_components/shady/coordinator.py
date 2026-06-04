@@ -17,14 +17,17 @@ CoordinatorData fields:
   today_total       : float (Wh)
   remaining         : float (Wh)
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
-from homeassistant.components.energy import async_get_manager as async_get_energy_manager
+from homeassistant.components.energy import (
+    async_get_manager as async_get_energy_manager,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -51,35 +54,36 @@ from .statistics import fetch_statistics
 _LOGGER = logging.getLogger(__name__)
 
 _FALLBACK_INTERVAL = timedelta(hours=1)
-_STORAGE_KEY       = f"{DOMAIN}.last_forecast"
-_STORAGE_VERSION   = 1
+_STORAGE_KEY = f"{DOMAIN}.last_forecast"
+_STORAGE_VERSION = 1
 
 
 # ---------------------------------------------------------------------------
 # Data container
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class CoordinatorData:
-    raw_forecast      : dict[str, float]            = field(default_factory=dict)
-    forecast_today    : dict[str, float]            = field(default_factory=dict)
-    forecast_tomorrow : dict[str, float]            = field(default_factory=dict)
-    string_forecasts  : dict[str, dict[str, float]] = field(default_factory=dict)
-    today_total       : float                       = 0.0
-    remaining         : float                       = 0.0
+    raw_forecast: dict[str, float] = field(default_factory=dict)
+    forecast_today: dict[str, float] = field(default_factory=dict)
+    forecast_tomorrow: dict[str, float] = field(default_factory=dict)
+    string_forecasts: dict[str, dict[str, float]] = field(default_factory=dict)
+    today_total: float = 0.0
+    remaining: float = 0.0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "CoordinatorData":
+    def from_dict(cls, d: dict[str, Any]) -> "CoordinatorData":
         return cls(
-            raw_forecast      = d.get("raw_forecast", {}),
-            forecast_today    = d.get("forecast_today", {}),
-            forecast_tomorrow = d.get("forecast_tomorrow", {}),
-            string_forecasts  = d.get("string_forecasts", {}),
-            today_total       = float(d.get("today_total", 0.0)),
-            remaining         = float(d.get("remaining", 0.0)),
+            raw_forecast=d.get("raw_forecast", {}),
+            forecast_today=d.get("forecast_today", {}),
+            forecast_tomorrow=d.get("forecast_tomorrow", {}),
+            string_forecasts=d.get("string_forecasts", {}),
+            today_total=float(d.get("today_total", 0.0)),
+            remaining=float(d.get("remaining", 0.0)),
         )
 
 
@@ -87,8 +91,8 @@ class CoordinatorData:
 # Coordinator
 # ---------------------------------------------------------------------------
 
-class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
+class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=_FALLBACK_INTERVAL)
         self._entry = entry
@@ -138,55 +142,54 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             await self._store.async_save(data.to_dict())
             _LOGGER.debug(
                 "Saved: %d today-slots  %d tomorrow-slots  %d strings",
-                len(data.forecast_today), len(data.forecast_tomorrow),
+                len(data.forecast_today),
+                len(data.forecast_tomorrow),
                 len(data.string_forecasts),
             )
         return data
 
     async def _build_data(self) -> CoordinatorData:
-        raw        = await fetch_raw_forecast(self.hass)
+        raw = await fetch_raw_forecast(self.hass)
         pv_sensors = self._active_pv_sensors()
 
         if not pv_sensors:
-            corrected        = dict(raw)
-            string_forecasts : dict[str, dict[str, float]] = {}
+            corrected = dict(raw)
+            string_forecasts: dict[str, dict[str, float]] = {}
         else:
             corrected, string_forecasts = await self._apply_corrections(raw, pv_sensors)
 
-        now            = dt_util.now()
-        today_start    = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        now = dt_util.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         tomorrow_start = today_start + timedelta(days=1)
-        day_after      = tomorrow_start + timedelta(days=1)
+        day_after = tomorrow_start + timedelta(days=1)
 
         forecast_today = {
-            ts: wh for ts, wh in corrected.items()
-            if today_start <= parse_dt(ts) < tomorrow_start
+            ts: wh for ts, wh in corrected.items() if today_start <= parse_dt(ts) < tomorrow_start
         }
-        forecast_tomorrow = aggregate_to_hours({
-            ts: wh for ts, wh in corrected.items()
-            if tomorrow_start <= parse_dt(ts) < day_after
-        })
+        forecast_tomorrow = aggregate_to_hours(
+            {ts: wh for ts, wh in corrected.items() if tomorrow_start <= parse_dt(ts) < day_after}
+        )
 
-        today_total = r(sum(forecast_today.values()))
-        remaining   = r(sum(
-            wh for ts, wh in forecast_today.items()
-            if parse_dt(ts) >= now
-        ))
+        # Aggregate 5-min sub-slots back to hourly before summing,
+        # otherwise each hourly FC value is counted 12 times.
+        today_hourly = aggregate_to_hours(forecast_today)
+        today_total = r(sum(today_hourly.values()))
+        remaining = r(sum(wh for ts, wh in today_hourly.items() if parse_dt(ts) >= now))
 
         for needle in ("T12:", "T11:"):
-            rv = next((wh for ts, wh in raw.items()       if needle in ts), None)
+            rv = next((wh for ts, wh in raw.items() if needle in ts), None)
             cv = next((wh for ts, wh in corrected.items() if needle in ts), None)
             if rv is not None and cv is not None:
                 _LOGGER.info("Midday slot: raw=%.2f Wh  corrected=%.2f Wh", rv, cv)
                 break
 
         return CoordinatorData(
-            raw_forecast      = raw,
-            forecast_today    = forecast_today,
-            forecast_tomorrow = forecast_tomorrow,
-            string_forecasts  = string_forecasts,
-            today_total       = today_total,
-            remaining         = remaining,
+            raw_forecast=raw,
+            forecast_today=forecast_today,
+            forecast_tomorrow=forecast_tomorrow,
+            string_forecasts=string_forecasts,
+            today_total=today_total,
+            remaining=remaining,
         )
 
     # ---- correction pipeline ----
@@ -195,10 +198,10 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self, raw: dict[str, float], pv_sensors: list[str]
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
         """Delegate correction pipeline to shadylib."""
-        algorithm    = self._cfg(CONF_ALGORITHM, DEFAULT_ALGORITHM)
-        fc_sensor    = self._cfg(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)
+        algorithm = self._cfg(CONF_ALGORITHM, DEFAULT_ALGORITHM)
+        fc_sensor = self._cfg(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
-        start        = dt_util.now() - timedelta(days=history_days)
+        start = dt_util.now() - timedelta(days=history_days)
 
         try:
             stats = await fetch_statistics(self.hass, [fc_sensor] + pv_sensors, start)
@@ -206,7 +209,7 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             _LOGGER.warning("Cannot fetch statistics: %s – using raw forecast", err)
             return dict(raw), {}
 
-        fc_rows         = stats.get(fc_sensor, [])
+        fc_rows = stats.get(fc_sensor, [])
         pv_sensors_rows = {s: stats.get(s, []) for s in pv_sensors}
 
         return _shadylib_apply_corrections(raw, fc_rows, pv_sensors_rows, algorithm)

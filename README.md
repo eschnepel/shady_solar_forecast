@@ -57,8 +57,8 @@ Three algorithms are available, all using the same per-5-min-bucket structure an
 | **Linear** | `y = slope(B) × raw + intercept(B)` | General use (default) |
 | **Quadratic** | `y = a(B) × raw² + b(B) × raw` | Non-linear shading (no free intercept) |
 
-All predictions are clamped to `max(0, predicted)`.  
-Quadratic uses no free intercept (physically correct: fc=0 → pv=0) and falls back to linear if fewer than 3 training points are available.  
+All predictions are clamped to `max(0, predicted)`.
+Quadratic uses no free intercept (physically correct: fc=0 → pv=0) and falls back to linear if fewer than 3 training points are available.
 If all string models fail, the raw forecast is passed through unchanged.
 
 ### Per-String Models

@@ -3,6 +3,7 @@
 Abstracts away the HA version differences in statistics_during_period row format
 (object-style vs dict-style rows, Unix timestamp vs ISO string vs datetime).
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,7 +22,7 @@ async def fetch_statistics(
     hass: HomeAssistant,
     statistic_ids: list[str],
     start: datetime,
-) -> dict[str, list[dict]]:
+) -> dict[str, list[dict[str, Any]]]:
     """Fetch 5-minute means for all statistic_ids in one recorder call.
 
     Returns {statistic_id: [{"start": datetime, "mean": float}, ...]}
@@ -30,6 +31,7 @@ async def fetch_statistics(
     (r["mean"], r["start"]) depending on the HA version. Also handles
     Unix timestamp floats as start values.
     """
+
     def _mean(row: Any) -> float | None:
         return row.get("mean") if isinstance(row, dict) else getattr(row, "mean", None)
 
@@ -43,7 +45,7 @@ async def fetch_statistics(
             return datetime.fromtimestamp(v, tz=dt_util.UTC)
         raise ValueError(f"Cannot parse start value: {v!r}")
 
-    def _query() -> dict[str, list[dict]]:
+    def _query() -> dict[str, list[dict[str, Any]]]:
         result = statistics_during_period(
             hass,
             start_time=start,
@@ -55,11 +57,10 @@ async def fetch_statistics(
         )
         return {
             sid: [
-                {"start": _start(row), "mean": _mean(row)}
-                for row in rows
-                if _mean(row) is not None
+                {"start": _start(row), "mean": _mean(row)} for row in rows if _mean(row) is not None
             ]
             for sid, rows in result.items()
         }
 
-    return await get_recorder(hass).async_add_executor_job(_query)
+    res: dict[str, list[dict[str, Any]]] = await get_recorder(hass).async_add_executor_job(_query)
+    return res
