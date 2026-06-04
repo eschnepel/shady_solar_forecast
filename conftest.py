@@ -94,7 +94,8 @@ _lib = "shadylib"
 try:
     __import__(_lib)
 except ImportError:
-    pass
+    # Optional dependency may be absent; vendored fallback import is handled below.
+    _missing_shadylib = True
 if _lib not in _sys.modules:
     from pathlib import Path as _P
 
