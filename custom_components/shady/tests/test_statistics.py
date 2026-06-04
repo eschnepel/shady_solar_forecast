@@ -21,7 +21,7 @@ class TestStartParsing:
     mocked recorder results in each row format HA versions can return.
     """
 
-    def _make_row(self, start_val:datetime, mean_val: float) -> object:
+    def _make_row(self, start_val:datetime, mean_val: float) -> MagicMock:
         """Create a mock row with object-style attributes."""
         row = MagicMock()
         row.start = start_val
