@@ -10,7 +10,7 @@ import pytest
 class TestFetchRawForecast:
     def _make_hass(
         self, energy_data: dict, platforms: dict, config_entries: dict
-    ) -> MagicMock:
+    ) -> tuple:
         hass = MagicMock()
 
         manager = MagicMock()
