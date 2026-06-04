@@ -89,12 +89,12 @@ _stub(
 # Mirror the vendored-shadylib logic from shady/__init__.py so tests
 # can import `from shadylib.X import Y` without a pip-installed shadylib.
 import sys as _sys  # noqa: E402
-import importlib.util as _iutil  # noqa: E402
-
 _lib = "shadylib"
-if _iutil.find_spec(_lib) is not None:
-    pass  # already pip/uv-installed, nothing to do
-elif _lib not in _sys.modules:
+try:
+    __import__(_lib)
+except ImportError:
+    pass
+if _lib not in _sys.modules:
     from pathlib import Path as _P
 
     def _vendored_import(module_path: str, module_name: str) -> bool:
@@ -164,4 +164,4 @@ elif _lib not in _sys.modules:
             raise _e
         print("found", _lib, "at", _dir)
     del _vendored_import, _P, _dir, _e
-del _sys, _lib, _iutil
+del _sys, _lib
