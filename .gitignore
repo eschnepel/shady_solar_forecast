@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# vendored shadylib (added automatically during release build)
+custom_components/shady/shadylib/
