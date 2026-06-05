@@ -37,6 +37,11 @@ jobs:
           mv /tmp/manifest.json \
             shady_solar_forecast/custom_components/shady/manifest.json
 
+      - name: Generate strings.json from translations/en.json
+        run: |
+          cp shady_solar_forecast/custom_components/shady/translations/en.json \
+            shady_solar_forecast/custom_components/shady/strings.json
+
       - name: Build release ZIP
         run: |
           cd shady_solar_forecast
