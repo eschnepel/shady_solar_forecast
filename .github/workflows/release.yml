@@ -44,10 +44,9 @@ jobs:
 
       - name: Build release ZIP
         run: |
-          cd shady_solar_forecast
-          zip -r ../shady_solar_forecast.zip custom_components/ \
-            --exclude "custom_components/*/tests/*"
-          cd ..
+          cd shady_solar_forecast/custom_components/shady
+          zip -r ../../../shady_solar_forecast.zip . \
+            --exclude "*/tests/*"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
