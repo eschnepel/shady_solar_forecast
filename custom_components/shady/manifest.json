@@ -1,7 +1,7 @@
 {
   "domain": "shady",
   "name": "Shady",
-  "version": "1.0.0",
+  "version": "latest",
   "documentation": "https://github.com/eschnepel/shady_solar_forecast",
   "issue_tracker": "https://github.com/eschnepel/shady_solar_forecast/issues",
   "codeowners": ["@eschnepel"],

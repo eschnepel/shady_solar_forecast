@@ -28,6 +28,15 @@ jobs:
           cp -r shadylib/src/shadylib \
             shady_solar_forecast/custom_components/shady/shadylib
 
+      - name: Update manifest.json version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' \
+            shady_solar_forecast/custom_components/shady/manifest.json \
+            > /tmp/manifest.json
+          mv /tmp/manifest.json \
+            shady_solar_forecast/custom_components/shady/manifest.json
+
       - name: Build release ZIP
         run: |
           cd shady_solar_forecast
