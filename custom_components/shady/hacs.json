@@ -1,9 +1,0 @@
-{
-  "name": "Shady Solar Forecast",
-  "description": "Corrected solar production forecast using per-hour regression on your PV history.",
-  "render_readme": true,
-  "homeassistant": "2024.1.0",
-  "domains": ["sensor"],
-  "zip_release": true,
-  "filename": "shady_solar_forecast.zip"
-}
