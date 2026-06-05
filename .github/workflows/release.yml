@@ -40,11 +40,12 @@ jobs:
       - name: Build release ZIP
         run: |
           cd shady_solar_forecast
-          zip -r ../shady_solar_forecast.zip custom_components/
+          zip -r ../shady_solar_forecast.zip custom_components/ \
+            --exclude "custom_components/*/tests/*"
           cd ..
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: shady_solar_forecast.zip
           generate_release_notes: true
