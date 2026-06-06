@@ -35,8 +35,6 @@ __all__ = [
     "PRECISION",
 ]
 
-_SLOTS_PER_DAY = 24 * (60 // BUCKET_MIN)  # 288
-
 
 def parse_dt(iso_str: str) -> datetime:
     """Parse an ISO-8601 string. Uses HA's UTC for the fallback sentinel."""
