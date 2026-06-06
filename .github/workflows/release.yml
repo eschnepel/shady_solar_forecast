@@ -17,11 +17,23 @@ jobs:
         with:
           path: shady_solar_forecast
 
+      - name: Read shadylib version from pyproject.toml
+        id: shadylib_version
+        run: |
+          VERSION=$(python3 -c "
+          import tomllib, pathlib
+          d = tomllib.loads(pathlib.Path('shady_solar_forecast/pyproject.toml').read_text())
+          entry = next(e for e in d['dependency-groups']['dev'] if isinstance(e, str) and 'shadylib' in e)
+          print(entry.split('@')[-1])
+          ")
+          echo "ref=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Checkout shadylib
         uses: actions/checkout@v6
         with:
           repository: eschnepel/shadylib
           path: shadylib
+          ref: ${{ steps.shadylib_version.outputs.ref }}
 
       - name: Vendor shadylib into custom_components
         run: |
