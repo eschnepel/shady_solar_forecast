@@ -42,7 +42,7 @@ def simulate_correction(
                 sub_ts = slot_dt.replace(minute=mm, second=0, microsecond=0).isoformat()
                 bk = (slot_dt.hour, mm)
                 model = models.get(bk)
-                val = r(max(0.0, predict(model, raw_wh))) if model else 0.0
+                val = r(max(0.0, predict(model, raw_wh)) / 12) if model else 0.0
                 result[sub_ts] = r(result.get(sub_ts, 0.0) + val)
         else:
             bk = (slot_dt.hour, snap(slot_dt.minute))
@@ -89,12 +89,17 @@ class TestHourlyExpansion:
             assert expected in result
 
     def test_constant_factor_preserved_over_expansion(self):
-        """With pv = 0.5 * fc, all 12 sub-slots should predict 0.5 * raw_wh."""
+        """With pv = 0.5 * fc (both in W), the hourly slot (400 Wh) should
+        produce 12 sub-slots that together sum to 200 Wh (= 400 * 0.5).
+        Each individual sub-slot is 200 / 12 ≈ 16.67 Wh."""
         fc_rows, pv_rows = self._make_training(400.0, 200.0, 10)
         raw = {"2025-06-01T10:00:00+00:00": 400.0}
         result = simulate_correction(raw, fc_rows, pv_rows, algorithm="factor")
+        expected_per_slot = 400.0 * 0.5 / 12  # ≈ 16.67 Wh
         for val in result.values():
-            assert abs(val - 200.0) < 5.0  # allow small fitting error
+            assert abs(val - expected_per_slot) < 1.0  # allow small fitting error
+        # The 12 sub-slots must also sum to ~200 Wh (the corrected hourly total)
+        assert abs(sum(result.values()) - 200.0) < 5.0
 
     def test_shading_in_middle_of_hour(self):
         """Buckets 10:15–10:30 shaded, others not. Shaded slots should be lower."""
@@ -169,3 +174,53 @@ class TestCurtailmentFilter:
         result = predict(model, 400.0)
         # Should be closer to 200 than 100 (curtailed days excluded)
         assert result > 150.0
+
+
+class TestTodayTotalAndRemaining:
+    """today_total and remaining are computed directly from forecast_today 5-min slots.
+
+    This mirrors coordinator._build_data():
+        today_total = r(sum(forecast_today.values()))
+        remaining   = r(sum(wh for ts, wh in forecast_today.items() if parse_dt(ts) >= now))
+
+    No hourly aggregation step — so remaining has 5-min precision.
+    """
+
+    def _make_slots(self, hours: range, wh_per_slot: float) -> dict[str, float]:
+        slots = {}
+        for h in hours:
+            for mm in range(0, 60, BUCKET_MIN):
+                ts = datetime(2025, 6, 2, h, mm, tzinfo=UTC).isoformat()
+                slots[ts] = wh_per_slot
+        return slots
+
+    def test_today_total_sums_all_slots(self):
+        """Sum of all 5-min slots equals today_total."""
+        slots = self._make_slots(range(6, 20), 10.0)
+        total = round(sum(slots.values()), 2)
+        # 14 hours × 12 slots × 10 Wh = 1680 Wh
+        assert abs(total - 1680.0) < 0.1
+
+    def test_remaining_excludes_past_slots(self):
+        """remaining only counts slots whose start timestamp >= now."""
+        from shady.math_utils import parse_dt
+
+        slots = self._make_slots(range(6, 20), 10.0)
+        now = datetime(2025, 6, 2, 12, 0, tzinfo=UTC)
+        remaining = round(sum(wh for ts, wh in slots.items() if parse_dt(ts) >= now), 2)
+        total = round(sum(slots.values()), 2)
+        # 12:00–19:55 = 8 hours × 12 slots × 10 Wh = 960 Wh
+        assert abs(remaining - 960.0) < 0.1
+        assert remaining < total
+
+    def test_remaining_5min_precision(self):
+        """remaining changes by exactly one slot (10 Wh) when now advances 5 min."""
+        from shady.math_utils import parse_dt
+
+        slots = self._make_slots(range(10, 14), 10.0)
+        now_a = datetime(2025, 6, 2, 11, 0, tzinfo=UTC)
+        now_b = datetime(2025, 6, 2, 11, 5, tzinfo=UTC)
+
+        rem_a = sum(wh for ts, wh in slots.items() if parse_dt(ts) >= now_a)
+        rem_b = sum(wh for ts, wh in slots.items() if parse_dt(ts) >= now_b)
+        assert abs((rem_a - rem_b) - 10.0) < 0.01
