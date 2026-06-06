@@ -48,7 +48,7 @@ def _stub(path: str, **attrs) -> types.ModuleType:
 _stub("homeassistant")
 dt_mod = _stub("homeassistant.util.dt", UTC=UTC, now=lambda: datetime.now(tz=UTC))
 _stub("homeassistant.util", dt=dt_mod)
-_stub("homeassistant.const", Platform=_SubscriptableMock())
+_stub("homeassistant.const", Platform=_SubscriptableMock(), UnitOfEnergy=_SubscriptableMock())
 _stub("homeassistant.core", HomeAssistant=_GenericBase, callback=lambda f: f)
 _stub("homeassistant.config_entries", ConfigEntry=_GenericBase)
 _stub("homeassistant.exceptions", ConfigEntryNotReady=Exception)

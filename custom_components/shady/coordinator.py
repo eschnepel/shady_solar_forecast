@@ -7,15 +7,15 @@ Data pipeline:
 3. build_bucket_models()        → per-string per-5-min-bucket WLS models
 4. _apply_corrections()         → corrected forecast per string + combined
 5. Split today (native res.) / tomorrow (hourly aggregation)
-6. Compute today_total + remaining
+6. Compute today_total + remaining directly from 5-min today slots
 
 CoordinatorData fields:
   raw_forecast      : {ISO-ts: Wh}
-  forecast_today    : {ISO-ts: Wh}  – native provider resolution
+  forecast_today    : {ISO-ts: Wh}  – native provider resolution (5-min for hourly providers)
   forecast_tomorrow : {ISO-ts: Wh}  – aggregated to full hours
   string_forecasts  : {entity_id: {ISO-ts: Wh}}
   today_total       : float (Wh)
-  remaining         : float (Wh)
+  remaining         : float (Wh)  – sum of slots whose start >= now (5-min precision)
 """
 
 from __future__ import annotations
@@ -170,11 +170,11 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             {ts: wh for ts, wh in corrected.items() if tomorrow_start <= parse_dt(ts) < day_after}
         )
 
-        # Aggregate 5-min sub-slots back to hourly before summing,
-        # otherwise each hourly FC value is counted 12 times.
-        today_hourly = aggregate_to_hours(forecast_today)
-        today_total = r(sum(today_hourly.values()))
-        remaining = r(sum(wh for ts, wh in today_hourly.items() if parse_dt(ts) >= now))
+        # today_total and remaining are summed directly over the 5-min slots in
+        # forecast_today.  remaining uses the slot start timestamp so precision
+        # is 5 minutes rather than a full hour.
+        today_total = r(sum(forecast_today.values()))
+        remaining = r(sum(wh for ts, wh in forecast_today.items() if parse_dt(ts) >= now))
 
         for needle in ("T12:", "T11:"):
             rv = next((wh for ts, wh in raw.items() if needle in ts), None)

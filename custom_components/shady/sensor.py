@@ -4,25 +4,28 @@ Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
 
   Aggregate (always present):
     solar_forecast_hourly            – corrected Wh for the current 5-min slot
-                                       attr 'forecast': today's {ts: Wh} at native resolution
-                                       attr 'forecast_tomorrow': tomorrow's {hour-ts: Wh} hourly
+                                       attr 'forecast': today's 288 × 5-min slots {ts: Wh}
+                                       attr 'forecast_tomorrow': tomorrow's 288 × 5-min slots
     solar_forecast_today             – total corrected Wh for today
-    solar_forecast_remaining         – corrected Wh remaining today (from now)
+    solar_forecast_remaining         – corrected Wh remaining today (from now, 5-min precision)
     solar_forecast_hourly_raw        – raw (uncorrected) Wh for the current slot
-                                       attr 'forecast': full raw {ts: Wh} dict
+                                       attr 'forecast': today's 288 × 5-min slots {ts: Wh}
 
   Per configured PV string (one sensor per non-empty pv_sensor_N config key):
     solar_forecast_hourly_<slug>     – corrected Wh current slot for that string
-                                       attr 'forecast': per-string today {ts: Wh}
+                                       attr 'forecast': today's 288 × 5-min slots {ts: Wh}
                                        attr 'pv_sensor': source entity_id
 
-  Note: slots whose 5-min bucket has no fitted model default to 0.0.
+  All forecast attributes contain exactly 288 slots covering 00:00–23:55 of the
+  relevant day.  Timestamps are snapped to 5-minute boundaries; night-time slots
+  and any gaps are filled with 0.0.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from datetime import timedelta
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -35,13 +38,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from datetime import timedelta
 
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, PV_SENSOR_KEYS
 from .coordinator import CoordinatorData, ShadyCoordinator
+from .math_utils import normalise_to_5min_day as _normalise_to_5min_day
 from .math_utils import parse_dt as _parse_dt
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -160,9 +164,14 @@ class SolarForecastCurrentSensor(_Base):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
+        now = dt_util.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
         return {
-            "forecast": self._data.forecast_today,
-            "forecast_tomorrow": self._data.forecast_tomorrow,
+            "forecast": _normalise_to_5min_day(self._data.forecast_today, today_start),
+            "forecast_tomorrow": _normalise_to_5min_day(
+                self._data.forecast_tomorrow, tomorrow_start
+            ),
         }
 
 
@@ -220,7 +229,9 @@ class SolarForecastCurrentRawSensor(_Base):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        return {"forecast": self._data.raw_forecast}
+        now = dt_util.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return {"forecast": _normalise_to_5min_day(self._data.raw_forecast, today_start)}
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +275,12 @@ class SolarForecastStringCurrentSensor(_Base):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
+        now = dt_util.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         return {
-            "forecast": self._data.string_forecasts.get(self._pv_entity_id, {}),
+            "forecast": _normalise_to_5min_day(
+                self._data.string_forecasts.get(self._pv_entity_id, {}),
+                today_start,
+            ),
             "pv_sensor": self._pv_entity_id,
         }
