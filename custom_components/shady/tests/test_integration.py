@@ -10,8 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 
-from shady.math_utils import r, snap, aggregate_to_hours
-from shady.models import build_bucket_models, predict
+from shadylib import r, snap, aggregate_to_hours
+from shadylib import build_bucket_models, predict
 
 UTC = timezone.utc
 BUCKET_MIN = 5
@@ -203,7 +203,7 @@ class TestTodayTotalAndRemaining:
 
     def test_remaining_excludes_past_slots(self):
         """remaining only counts slots whose start timestamp >= now."""
-        from shady.math_utils import parse_dt
+        from shadylib import parse_dt
 
         slots = self._make_slots(range(6, 20), 10.0)
         now = datetime(2025, 6, 2, 12, 0, tzinfo=UTC)
@@ -215,7 +215,7 @@ class TestTodayTotalAndRemaining:
 
     def test_remaining_5min_precision(self):
         """remaining changes by exactly one slot (10 Wh) when now advances 5 min."""
-        from shady.math_utils import parse_dt
+        from shadylib import parse_dt
 
         slots = self._make_slots(range(10, 14), 10.0)
         now_a = datetime(2025, 6, 2, 11, 0, tzinfo=UTC)

@@ -28,7 +28,7 @@ dev = [
   "pytest-asyncio",
   "pytest-cov",
   "ruff",
-  "shadylib @ git+https://github.com/eschnepel/shadylib.git@v1.0.1",
+  "shadylib @ git+https://github.com/eschnepel/shadylib.git@v1.1.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -38,6 +38,8 @@ where = ["custom_components"]
 python_version = "3.12"
 ignore_missing_imports = true
 warn_unused_ignores = true
+explicit_package_bases = true
+mypy_path = "$MYPY_CONFIG_FILE_DIR/custom_components"
 
 [tool.ruff]
 line-length = 100

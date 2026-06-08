@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 
-from shady.math_utils import normalise_to_5min_day as _normalise_to_5min_day
+from shadylib import normalise_to_5min_day as _normalise_to_5min_day
 
 UTC = timezone.utc
 

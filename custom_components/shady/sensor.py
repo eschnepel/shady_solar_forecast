@@ -41,10 +41,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, PV_SENSOR_KEYS
+from .const import CONF_PV_SENSORS, DOMAIN
 from .coordinator import CoordinatorData, ShadyCoordinator
-from .math_utils import normalise_to_5min_day as _normalise_to_5min_day
-from .math_utils import parse_dt as _parse_dt
+from shadylib import normalise_to_5min_day as _normalise_to_5min_day
+from shadylib import parse_dt as _parse_dt
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,12 +64,11 @@ async def async_setup_entry(
         SolarForecastCurrentRawSensor(coordinator, entry),
     ]
 
-    # One hourly sensor per configured PV string
+    # One forecast sensor per configured PV string
     d = entry.options or entry.data
-    for key in PV_SENSOR_KEYS:
-        entity_id = d.get(key, "")
+    for entity_id in d.get(CONF_PV_SENSORS, []):
         if entity_id:
-            entities.append(SolarForecastStringCurrentSensor(coordinator, entry, key, entity_id))
+            entities.append(SolarForecastStringCurrentSensor(coordinator, entry, entity_id))
 
     async_add_entities(entities)
 
@@ -81,9 +80,6 @@ async def async_setup_entry(
 
 class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
     _attr_has_entity_name = True
-    _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL
-    _attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
 
     def __init__(
         self,
@@ -99,6 +95,43 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
             manufacturer="Enrico Schnepel",
             entry_type="service",
         )
+        # Set initial unit/state_class from defaults; updated on each coordinator refresh
+        self._sync_unit_attrs()
+
+    def _sync_unit_attrs(self) -> None:
+        """Sync unit and state_class from coordinator data (fc_sensor metadata)."""
+        from homeassistant.const import UnitOfPower
+
+        fc_unit = self._data.fc_unit
+        fc_sc = self._data.fc_state_class
+
+        # device_class
+        if fc_unit in ("W", "kW"):
+            self._attr_device_class = SensorDeviceClass.POWER
+        else:
+            self._attr_device_class = SensorDeviceClass.ENERGY
+
+        # state_class
+        sc_map = {
+            "measurement": SensorStateClass.MEASUREMENT,
+            "total": SensorStateClass.TOTAL,
+            "total_increasing": SensorStateClass.TOTAL_INCREASING,
+        }
+        self._attr_state_class = sc_map.get(fc_sc, SensorStateClass.TOTAL_INCREASING)
+
+        # native_unit_of_measurement
+        unit_map = {
+            "W": UnitOfPower.WATT,
+            "kW": UnitOfPower.KILO_WATT,
+            "Wh": UnitOfEnergy.WATT_HOUR,
+            "kWh": UnitOfEnergy.KILO_WATT_HOUR,
+            "MWh": UnitOfEnergy.MEGA_WATT_HOUR,
+        }
+        self._attr_native_unit_of_measurement = unit_map.get(fc_unit, UnitOfEnergy.WATT_HOUR)
+
+    def _handle_coordinator_update(self) -> None:
+        self._sync_unit_attrs()
+        super()._handle_coordinator_update()
 
     @property
     def _data(self) -> CoordinatorData:
@@ -253,13 +286,12 @@ class SolarForecastStringCurrentSensor(_Base):
         self,
         coordinator: ShadyCoordinator,
         entry: ConfigEntry,
-        conf_key: str,
         pv_entity_id: str,
     ) -> None:
         slug = _entity_id_to_slug(pv_entity_id)
-        super().__init__(coordinator, entry, f"solar_forecast_hourly_{conf_key}")
+        super().__init__(coordinator, entry, f"forecast_{slug}")
         self._pv_entity_id = pv_entity_id
-        self._attr_name = f"Solar Forecast Hourly {slug}"
+        self._attr_name = f"Shady Forecast {slug}"
 
     @property
     def native_value(self) -> float | None:

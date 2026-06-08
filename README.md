@@ -61,9 +61,26 @@ All predictions are clamped to `max(0, predicted)`.
 Quadratic uses no free intercept (physically correct: fc=0 → pv=0) and falls back to linear if fewer than 3 training points are available.
 If all string models fail, the raw forecast is passed through unchanged.
 
+### Supported Input Units
+
+Shady reads the unit from the HA entity registry for each configured sensor.
+All sensors (fc_sensor and pv_sensors) are supported in:
+
+| Unit | Type | Conversion |
+|------|------|------------|
+| `W`  | Power / measurement | `W × 5/60 → Wh/slot` |
+| `kW` | Power / measurement | `kW × 1000 × 5/60 → Wh/slot` |
+| `Wh` | Energy / total | no conversion |
+| `kWh`| Energy / total | `kWh × 1000 → Wh/slot` |
+| `MWh`| Energy / total | `MWh × 1 000 000 → Wh/slot` |
+
+Internal processing always uses Wh/slot. All output sensors use the **fc_sensor's unit and state_class** for their output (e.g. if your forecast reference sensor is in W, all Shady output sensors will also be in W).
+
+If pv_sensors have mixed units, Shady logs a warning but continues — each sensor is converted individually.
+
 ### Per-String Models
 
-Up to 4 PV strings can be configured independently. Each string gets its own set of bucket models, allowing different shading profiles per string. The corrected outputs are summed into the aggregate forecast.
+Any number of PV strings can be configured independently. Each string gets its own set of bucket models, allowing different shading profiles per string. The corrected outputs are summed into the aggregate forecast.
 
 ### Forecast Resolution
 
@@ -112,12 +129,13 @@ The last successful forecast is saved to HA storage and restored on restart so s
 | Field | Required | Description |
 |---|---|---|
 | **Forecast reference sensor** | ✓ | Sensor with 5-min recorder statistics that correlates with the raw forecast (e.g. `sensor.power_production_now`) |
-| **PV String 1** | ✓ | Actual production sensor for string 1 (5-min recorder statistics required) |
-| **PV String 2–4** | – | Additional string sensors (leave empty if not applicable) |
+| **PV string sensors** | ✓ | One or more actual production sensors (5-min recorder statistics required); select via the entity picker, at least 1 required |
 | **History days** | – | Days of 5-min recorder history used for model training (default: 28) |
 | **Correction algorithm** | – | `factor`, `linear` (default), or `quadratic` |
 
 All options can be changed later via **Settings → Devices & Services → Shady → Configure**.
+
+> **Migrating from an older version?** If your config entry still uses the old `pv_sensor_1…4` keys, Shady will automatically migrate them to the new `pv_sensors` list on the next HA restart. Existing entity IDs (which used `_pv_sensor_1` etc.) will change — update any dashboards, automations, or templates referencing those sensors.
 
 > **Tip:** Sensors must have 5-minute statistics in the recorder. Verify under **Developer Tools → Statistics**. In `configuration.yaml`, ensure `recorder:` does not exclude these sensors.
 
@@ -131,17 +149,17 @@ All sensors are grouped under the **Shady** device. Values are rounded to 2 deci
 
 | Entity | Unit | Description |
 |---|---|---|
-| `sensor.shady_solar_forecast_hourly` | Wh | Corrected forecast for the **current slot** |
-| `sensor.shady_solar_forecast_today` | Wh | Total corrected forecast for **today** |
-| `sensor.shady_solar_forecast_remaining` | Wh | Corrected forecast for the **rest of today** |
-| `sensor.shady_solar_forecast_hourly_raw` | Wh | Raw (uncorrected) forecast for the current slot |
+| `sensor.shady_solar_forecast_hourly` | fc_sensor unit | Corrected forecast for the **current slot** |
+| `sensor.shady_solar_forecast_today` | fc_sensor unit | Total corrected forecast for **today** |
+| `sensor.shady_solar_forecast_remaining` | fc_sensor unit | Corrected forecast for the **rest of today** |
+| `sensor.shady_solar_forecast_hourly_raw` | fc_sensor unit | Raw (uncorrected) forecast for the current slot |
 
 The `solar_forecast_hourly` sensor carries two forecast attributes:
 
 ```yaml
 # Today at provider resolution (hourly for Forecast.Solar, 30-min for Solcast)
 forecast:
-  "2025-05-23T10:00:00+02:00": 287.40   # hourly corrected Wh
+  "2025-05-23T10:00:00+02:00": 287.40   # hourly corrected value in fc_sensor unit
   "2025-05-23T11:00:00+02:00": 341.20
   ...
 
@@ -167,9 +185,11 @@ For each configured PV string one additional sensor is created:
 
 | Entity (example) | Unit | Description |
 |---|---|---|
-| `sensor.shady_solar_forecast_hourly_solakon_one_string_1_leistung` | Wh | Corrected forecast current slot, string 1 only |
+| `sensor.shady_forecast_pv_string_dach_ost` | fc_sensor unit | Corrected forecast current slot for PV string `sensor.pv_string_dach_ost` |
 
 Each per-string sensor carries a `forecast` attribute (today's string-specific `{ts: Wh}` dict) and a `pv_sensor` attribute with the source entity ID.
+
+> **Note:** Entity IDs are derived from the PV sensor entity ID (e.g. `sensor.pv_string_dach_ost` → `sensor.shady_forecast_pv_string_dach_ost`). If you previously used `pv_sensor_1…4`, existing entity references need a one-time manual update after migration.
 
 ---
 
@@ -210,7 +230,7 @@ automation:
 template:
   - sensor:
       - name: "Solar Forecast 14:00"
-        unit_of_measurement: "Wh"
+        unit_of_measurement: "Wh"  # adjust to your fc_sensor unit if different
         state: >
           {% set fc = state_attr('sensor.shady_solar_forecast_hourly', 'forecast') %}
           {% if fc %}
