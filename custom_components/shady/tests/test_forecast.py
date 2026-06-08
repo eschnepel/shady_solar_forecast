@@ -28,43 +28,52 @@ class TestFetchRawForecast:
 
     @pytest.mark.asyncio
     async def test_no_energy_data_returns_empty(self):
-        from shady.forecast import fetch_raw_forecast
+        from custom_components.shady.forecast import fetch_raw_forecast
 
         hass = MagicMock()
         manager = MagicMock()
         manager.data = None
 
-        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
+        with patch(
+            "custom_components.shady.forecast.async_get_energy_manager",
+            AsyncMock(return_value=manager),
+        ):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_no_solar_sources_returns_empty(self):
-        from shady.forecast import fetch_raw_forecast
+        from custom_components.shady.forecast import fetch_raw_forecast
 
         hass = MagicMock()
         manager = MagicMock()
         manager.data = {"energy_sources": [{"type": "grid"}]}
 
-        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
+        with patch(
+            "custom_components.shady.forecast.async_get_energy_manager",
+            AsyncMock(return_value=manager),
+        ):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_solar_source_no_forecast_returns_empty(self):
-        from shady.forecast import fetch_raw_forecast
+        from custom_components.shady.forecast import fetch_raw_forecast
 
         hass = MagicMock()
         manager = MagicMock()
         manager.data = {"energy_sources": [{"type": "solar", "config_entry_solar_forecast": []}]}
 
-        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
+        with patch(
+            "custom_components.shady.forecast.async_get_energy_manager",
+            AsyncMock(return_value=manager),
+        ):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_forecast_data_aggregated(self):
-        from shady.forecast import fetch_raw_forecast
+        from custom_components.shady.forecast import fetch_raw_forecast
 
         entry_id = "abc123"
         hass = MagicMock()
@@ -95,11 +104,11 @@ class TestFetchRawForecast:
 
         with (
             patch(
-                "shady.forecast.async_get_energy_manager",
+                "custom_components.shady.forecast.async_get_energy_manager",
                 AsyncMock(return_value=manager),
             ),
             patch(
-                "shady.forecast.async_get_energy_platforms",
+                "custom_components.shady.forecast.async_get_energy_platforms",
                 AsyncMock(return_value={"forecast_solar": mock_platform_fn}),
             ),
         ):
@@ -111,7 +120,7 @@ class TestFetchRawForecast:
     @pytest.mark.asyncio
     async def test_two_sources_aggregated(self):
         """Two solar sources with same timestamp → values summed."""
-        from shady.forecast import fetch_raw_forecast
+        from custom_components.shady.forecast import fetch_raw_forecast
 
         hass = MagicMock()
         manager = MagicMock()
@@ -136,11 +145,11 @@ class TestFetchRawForecast:
 
         with (
             patch(
-                "shady.forecast.async_get_energy_manager",
+                "custom_components.shady.forecast.async_get_energy_manager",
                 AsyncMock(return_value=manager),
             ),
             patch(
-                "shady.forecast.async_get_energy_platforms",
+                "custom_components.shady.forecast.async_get_energy_platforms",
                 AsyncMock(return_value={"forecast_solar": mock_fn}),
             ),
         ):
@@ -151,7 +160,7 @@ class TestFetchRawForecast:
     @pytest.mark.asyncio
     async def test_platform_exception_skipped(self):
         """If one platform raises, others still processed."""
-        from shady.forecast import fetch_raw_forecast
+        from custom_components.shady.forecast import fetch_raw_forecast
 
         hass = MagicMock()
         manager = MagicMock()
@@ -173,11 +182,11 @@ class TestFetchRawForecast:
 
         with (
             patch(
-                "shady.forecast.async_get_energy_manager",
+                "custom_components.shady.forecast.async_get_energy_manager",
                 AsyncMock(return_value=manager),
             ),
             patch(
-                "shady.forecast.async_get_energy_platforms",
+                "custom_components.shady.forecast.async_get_energy_platforms",
                 AsyncMock(return_value={"bad_provider": bad_fn}),
             ),
         ):
@@ -187,7 +196,7 @@ class TestFetchRawForecast:
 
     @pytest.mark.asyncio
     async def test_result_is_sorted(self):
-        from shady.forecast import fetch_raw_forecast
+        from custom_components.shady.forecast import fetch_raw_forecast
 
         hass = MagicMock()
         manager = MagicMock()
@@ -215,11 +224,11 @@ class TestFetchRawForecast:
 
         with (
             patch(
-                "shady.forecast.async_get_energy_manager",
+                "custom_components.shady.forecast.async_get_energy_manager",
                 AsyncMock(return_value=manager),
             ),
             patch(
-                "shady.forecast.async_get_energy_platforms",
+                "custom_components.shady.forecast.async_get_energy_platforms",
                 AsyncMock(return_value={"forecast_solar": mock_fn}),
             ),
         ):

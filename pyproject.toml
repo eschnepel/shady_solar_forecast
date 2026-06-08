@@ -36,10 +36,10 @@ where = ["custom_components"]
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "."
+no_namespace_packages = true
 ignore_missing_imports = true
 warn_unused_ignores = true
-explicit_package_bases = true
-mypy_path = "$MYPY_CONFIG_FILE_DIR/custom_components"
 
 [tool.ruff]
 line-length = 100

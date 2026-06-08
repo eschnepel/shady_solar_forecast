@@ -55,7 +55,7 @@ class TestStartParsing:
     @pytest.mark.asyncio
     async def test_fetch_statistics_filters_none_mean(self):
         """Rows with mean=None are excluded from output."""
-        from shady.statistics import fetch_statistics
+        from custom_components.shady.statistics import fetch_statistics
 
         rows = [
             {"start": dt(10), "mean": 100.0},
@@ -74,8 +74,8 @@ class TestStartParsing:
         hass = MagicMock()
 
         with (
-            patch("shady.statistics.statistics_during_period", mock_sdp),
-            patch("shady.statistics.get_recorder", return_value=mock_recorder),
+            patch("custom_components.shady.statistics.statistics_during_period", mock_sdp),
+            patch("custom_components.shady.statistics.get_recorder", return_value=mock_recorder),
         ):
             result = await fetch_statistics(hass, ["sensor.test"], dt(0))
 
@@ -86,7 +86,7 @@ class TestStartParsing:
     @pytest.mark.asyncio
     async def test_fetch_statistics_returns_datetime_objects(self):
         """start values in output should be datetime objects."""
-        from shady.statistics import fetch_statistics
+        from custom_components.shady.statistics import fetch_statistics
 
         rows = [{"start": dt(10), "mean": 200.0}]
         mock_result = {"sensor.pv": rows}
@@ -100,8 +100,8 @@ class TestStartParsing:
         hass = MagicMock()
 
         with (
-            patch("shady.statistics.statistics_during_period", mock_sdp),
-            patch("shady.statistics.get_recorder", return_value=mock_recorder),
+            patch("custom_components.shady.statistics.statistics_during_period", mock_sdp),
+            patch("custom_components.shady.statistics.get_recorder", return_value=mock_recorder),
         ):
             result = await fetch_statistics(hass, ["sensor.pv"], dt(0))
 
@@ -112,7 +112,7 @@ class TestStartParsing:
     @pytest.mark.asyncio
     async def test_fetch_statistics_unix_timestamp_converted(self):
         """Unix float start values are converted to datetime."""
-        from shady.statistics import fetch_statistics
+        from custom_components.shady.statistics import fetch_statistics
 
         unix_ts = datetime(2025, 6, 1, 10, 0, tzinfo=UTC).timestamp()
         rows = [{"start": unix_ts, "mean": 300.0}]
@@ -127,8 +127,8 @@ class TestStartParsing:
         hass = MagicMock()
 
         with (
-            patch("shady.statistics.statistics_during_period", mock_sdp),
-            patch("shady.statistics.get_recorder", return_value=mock_recorder),
+            patch("custom_components.shady.statistics.statistics_during_period", mock_sdp),
+            patch("custom_components.shady.statistics.get_recorder", return_value=mock_recorder),
         ):
             result = await fetch_statistics(hass, ["sensor.pv"], dt(0))
 
