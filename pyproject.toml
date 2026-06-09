@@ -54,3 +54,4 @@ extend-select = ["E", "F"]
 [tool.pytest.ini_options]
 testpaths = ["custom_components/shady/tests"]
 asyncio_mode = "auto"
+pythonpath = ["custom_components"]

@@ -12,7 +12,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 
-from custom_components.shady.const import (
+from shady.const import (
     CONF_PV_SENSORS,
     LEGACY_PV_SENSOR_KEYS,
 )
@@ -44,7 +44,7 @@ def _make_hass():
 
 class TestEntityIdToSlug:
     def _slug(self, entity_id: str) -> str:
-        from custom_components.shady.sensor import _entity_id_to_slug
+        from shady.sensor import _entity_id_to_slug
 
         return _entity_id_to_slug(entity_id)
 
@@ -80,7 +80,7 @@ class TestEntityIdToSlug:
 
 class TestStringCurrentSensorMetadata:
     def _make_sensor(self, entity_id: str):
-        from custom_components.shady.sensor import SolarForecastStringCurrentSensor
+        from shady.sensor import SolarForecastStringCurrentSensor
 
         coordinator = MagicMock()
         coordinator.data = None
@@ -138,7 +138,7 @@ class TestStringCurrentSensorMetadata:
 
 class TestMigrateLegacyPvSensors:
     def _migrate(self, options=None, data=None):
-        from custom_components.shady.__init__ import _migrate_legacy_pv_sensors
+        from shady import _migrate_legacy_pv_sensors
 
         hass = _make_hass()
         entry = _make_entry(options=options, data=data)
@@ -242,7 +242,7 @@ class TestMigrateLegacyPvSensors:
 
     def test_result_written_to_options(self):
         """Migration result is always written to entry.options, not entry.data."""
-        from custom_components.shady.__init__ import _migrate_legacy_pv_sensors
+        from shady import _migrate_legacy_pv_sensors
 
         hass = _make_hass()
         entry = _make_entry(options={"pv_sensor_1": "sensor.s1"})
@@ -251,7 +251,7 @@ class TestMigrateLegacyPvSensors:
         assert "options" in kwargs
 
     def test_entry_passed_to_update(self):
-        from custom_components.shady.__init__ import _migrate_legacy_pv_sensors
+        from shady import _migrate_legacy_pv_sensors
 
         hass = _make_hass()
         entry = _make_entry(options={"pv_sensor_1": "sensor.s1"})
@@ -267,7 +267,7 @@ class TestMigrateLegacyPvSensors:
 
 class TestCoordinatorActivePvSensors:
     def _make_coordinator(self, options: dict):
-        from custom_components.shady.coordinator import ShadyCoordinator
+        from shady.coordinator import ShadyCoordinator
 
         entry = _make_entry(options=options)
         coord = ShadyCoordinator.__new__(ShadyCoordinator)

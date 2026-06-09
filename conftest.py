@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import sys
 import types
+from pathlib import Path
+
+# Ensure custom_components/ is on sys.path so tests can use `from shady.X import …`
+# This must happen before any shady module is imported.
+_CC = str(Path(__file__).parent / "custom_components")
+if _CC not in sys.path:
+    sys.path.insert(0, _CC)
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
@@ -187,5 +194,5 @@ import sys as _sys_patch  # noqa: E402
 
 _ha_update_coord = _sys_patch.modules.get("homeassistant.helpers.update_coordinator")
 if _ha_update_coord is not None:
-    _ha_update_coord.CoordinatorEntity = _CoordinatorEntityBase
+    _ha_update_coord.CoordinatorEntity = _CoordinatorEntityBase  # type: ignore[attr-defined]
 del _sys_patch, _ha_update_coord

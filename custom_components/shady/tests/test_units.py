@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 
 
-from custom_components.shady.units import (
+from shady.units import (
     _ALL_UNITS,
     _ENERGY_UNITS,
     _FROM_WH,
