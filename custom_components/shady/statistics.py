@@ -20,7 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def fetch_statistics(
     hass: HomeAssistant,
-    statistic_ids: list[str],
+    statistic_ids: list[str] | set[str],
     start: datetime,
 ) -> dict[str, list[dict[str, Any]]]:
     """Fetch 5-minute means for all statistic_ids in one recorder call.
@@ -50,8 +50,9 @@ async def fetch_statistics(
             hass,
             start_time=start,
             end_time=None,
-            statistic_ids=statistic_ids,
+            statistic_ids=set(statistic_ids),
             period="5minute",
+            units=None,
             types={"mean"},
         )
         return {
