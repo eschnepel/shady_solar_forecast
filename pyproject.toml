@@ -28,7 +28,7 @@ dev = [
   "pytest-asyncio",
   "pytest-cov",
   "ruff",
-  "shadylib @ git+https://github.com/eschnepel/shadylib.git@v1.1.0",
+  "shadylib @ git+https://github.com/eschnepel/shadylib.git@v1.2.0",
 ]
 
 [tool.setuptools.packages.find]
