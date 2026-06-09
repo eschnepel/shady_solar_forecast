@@ -28,7 +28,7 @@ dev = [
   "pytest-asyncio",
   "pytest-cov",
   "ruff",
-  "shadylib @ git+https://github.com/eschnepel/shadylib.git@v1.0.1",
+  "shadylib @ git+https://github.com/eschnepel/shadylib.git@v1.1.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -36,6 +36,8 @@ where = ["custom_components"]
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = "."
+no_namespace_packages = true
 ignore_missing_imports = true
 warn_unused_ignores = true
 
@@ -52,3 +54,4 @@ extend-select = ["E", "F"]
 [tool.pytest.ini_options]
 testpaths = ["custom_components/shady/tests"]
 asyncio_mode = "auto"
+pythonpath = ["custom_components"]

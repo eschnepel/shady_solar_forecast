@@ -53,7 +53,6 @@ async def fetch_statistics(
             statistic_ids=statistic_ids,
             period="5minute",
             types={"mean"},
-            units=["Wh"],  # energy sensors; power sensors (W) passed through as-is
         )
         return {
             sid: [

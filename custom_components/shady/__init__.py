@@ -93,15 +93,32 @@ from homeassistant.const import Platform  # noqa: E402
 from homeassistant.core import HomeAssistant  # noqa: E402
 from homeassistant.exceptions import ConfigEntryNotReady  # noqa: E402
 
-from .const import DOMAIN  # noqa: E402
+from .const import CONF_PV_SENSORS, DOMAIN, LEGACY_PV_SENSOR_KEYS  # noqa: E402
 from .coordinator import ShadyCoordinator  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR]
 
 
+def _migrate_legacy_pv_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Migrate pv_sensor_1...4 keys to a single pv_sensors list (one-time, persistent)."""
+    d = entry.options or entry.data
+    if CONF_PV_SENSORS in d:
+        return  # already migrated
+    legacy = [s for k in LEGACY_PV_SENSOR_KEYS if (s := d.get(k, ""))]
+    if not legacy:
+        return
+    _LOGGER.info("Shady: migrating legacy pv_sensor_1...4 -> pv_sensors %s", legacy)
+    new_options = dict(entry.options or entry.data)
+    for k in LEGACY_PV_SENSOR_KEYS:
+        new_options.pop(k, None)
+    new_options[CONF_PV_SENSORS] = legacy
+    hass.config_entries.async_update_entry(entry, options=new_options)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
+    _migrate_legacy_pv_sensors(hass, entry)
 
     coordinator = ShadyCoordinator(hass, entry)
     try:

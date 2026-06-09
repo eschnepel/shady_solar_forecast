@@ -1,4 +1,4 @@
-"""Tests for math_utils.py – pure helpers, no HA needed beyond the stub."""
+"""Tests for shadylib math helpers (r, r6, snap, parse_dt, aggregate_to_hours, wls2)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from shady.math_utils import (
+from shadylib import (
     r,
     r6,
     snap,

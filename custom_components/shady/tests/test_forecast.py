@@ -34,7 +34,10 @@ class TestFetchRawForecast:
         manager = MagicMock()
         manager.data = None
 
-        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
+        with patch(
+            "shady.forecast.async_get_energy_manager",
+            AsyncMock(return_value=manager),
+        ):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
@@ -46,7 +49,10 @@ class TestFetchRawForecast:
         manager = MagicMock()
         manager.data = {"energy_sources": [{"type": "grid"}]}
 
-        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
+        with patch(
+            "shady.forecast.async_get_energy_manager",
+            AsyncMock(return_value=manager),
+        ):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 
@@ -58,7 +64,10 @@ class TestFetchRawForecast:
         manager = MagicMock()
         manager.data = {"energy_sources": [{"type": "solar", "config_entry_solar_forecast": []}]}
 
-        with patch("shady.forecast.async_get_energy_manager", AsyncMock(return_value=manager)):
+        with patch(
+            "shady.forecast.async_get_energy_manager",
+            AsyncMock(return_value=manager),
+        ):
             result = await fetch_raw_forecast(hass)
         assert result == {}
 

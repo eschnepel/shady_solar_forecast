@@ -15,7 +15,7 @@ from homeassistant.components.energy import (
 from homeassistant.components.energy.websocket_api import async_get_energy_platforms
 from homeassistant.core import HomeAssistant
 
-from .math_utils import r
+from shadylib import r
 
 _LOGGER = logging.getLogger(__name__)
 

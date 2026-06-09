@@ -4,9 +4,13 @@
   "version": "latest",
   "documentation": "https://github.com/eschnepel/shady_solar_forecast",
   "issue_tracker": "https://github.com/eschnepel/shady_solar_forecast/issues",
-  "codeowners": ["@eschnepel"],
+  "codeowners": [
+    "@eschnepel"
+  ],
   "dependencies": [],
-  "requirements": [],
+  "requirements": [
+    "shadylib @ git+https://github.com/eschnepel/shadylib.git"
+  ],
   "iot_class": "local_polling",
   "config_flow": true
 }

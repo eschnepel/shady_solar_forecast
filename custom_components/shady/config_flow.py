@@ -12,24 +12,21 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import selector
 
 from .const import (
-    DOMAIN,
-    DEFAULT_NAME,
+    ALGORITHM_OPTIONS,
+    CONF_ALGORITHM,
     CONF_FC_SENSOR,
     CONF_HISTORY_DAYS,
-    CONF_ALGORITHM,
-    CONF_PV_SENSOR_1,
-    CONF_PV_SENSOR_2,
-    CONF_PV_SENSOR_3,
-    CONF_PV_SENSOR_4,
+    CONF_PV_SENSORS,
+    DEFAULT_ALGORITHM,
     DEFAULT_FC_SENSOR,
     DEFAULT_HISTORY_DAYS,
-    DEFAULT_ALGORITHM,
-    ALGORITHM_OPTIONS,
+    DEFAULT_NAME,
+    DOMAIN,
 )
 
 _ENTITY_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
-_ENTITY_SEL_OPT = selector.EntitySelector(
-    selector.EntitySelectorConfig(domain="sensor", multiple=False)
+_ENTITY_MULTI_SEL = selector.EntitySelector(
+    selector.EntitySelectorConfig(domain="sensor", multiple=True)
 )
 _ALGORITHM_SEL = selector.SelectSelector(
     selector.SelectSelectorConfig(
@@ -41,7 +38,7 @@ _ALGORITHM_SEL = selector.SelectSelector(
 
 
 def _schema(d: dict) -> vol.Schema:
-    def _get(key: str, default: Any = "") -> Any:
+    def _get(key: str, default: Any = None) -> Any:
         return d.get(key, default)
 
     return vol.Schema(
@@ -49,10 +46,7 @@ def _schema(d: dict) -> vol.Schema:
             vol.Required(
                 CONF_FC_SENSOR, default=_get(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)
             ): _ENTITY_SEL,
-            vol.Required(CONF_PV_SENSOR_1, default=_get(CONF_PV_SENSOR_1)): _ENTITY_SEL,
-            vol.Optional(CONF_PV_SENSOR_2, default=_get(CONF_PV_SENSOR_2)): _ENTITY_SEL_OPT,
-            vol.Optional(CONF_PV_SENSOR_3, default=_get(CONF_PV_SENSOR_3)): _ENTITY_SEL_OPT,
-            vol.Optional(CONF_PV_SENSOR_4, default=_get(CONF_PV_SENSOR_4)): _ENTITY_SEL_OPT,
+            vol.Required(CONF_PV_SENSORS, default=_get(CONF_PV_SENSORS, [])): _ENTITY_MULTI_SEL,
             vol.Optional(
                 CONF_HISTORY_DAYS, default=_get(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
             ): vol.All(int, vol.Range(min=7, max=365)),
