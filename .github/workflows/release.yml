@@ -17,33 +17,17 @@ jobs:
         with:
           path: shady_solar_forecast
 
-      - name: Read shadylib version from pyproject.toml
-        id: shadylib_version
+      - name: Update manifest.json version and requirements
         run: |
-          VERSION=$(python3 -c "
+          SHADY_VERSION="${GITHUB_REF_NAME#v}"
+          SHADYLIB_REQ=$(python3 -c "
           import tomllib, pathlib
           d = tomllib.loads(pathlib.Path('shady_solar_forecast/pyproject.toml').read_text())
           entry = next(e for e in d['dependency-groups']['dev'] if isinstance(e, str) and 'shadylib' in e)
-          print(entry.split('@')[-1])
+          print(entry)
           ")
-          echo "ref=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Checkout shadylib
-        uses: actions/checkout@v6
-        with:
-          repository: eschnepel/shadylib
-          path: shadylib
-          ref: ${{ steps.shadylib_version.outputs.ref }}
-
-      - name: Vendor shadylib into custom_components
-        run: |
-          cp -r shadylib/src/shadylib \
-            shady_solar_forecast/custom_components/shady/shadylib
-
-      - name: Update manifest.json version
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          jq --arg v "$VERSION" '.version = $v' \
+          jq --arg v "$SHADY_VERSION" --arg r "$SHADYLIB_REQ" \
+            '.version = $v | .requirements = [$r]' \
             shady_solar_forecast/custom_components/shady/manifest.json \
             > /tmp/manifest.json
           mv /tmp/manifest.json \
