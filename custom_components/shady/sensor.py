@@ -140,12 +140,13 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
     def _current_slot_value(self, slots: dict[str, float]) -> float:
         """Return the value for the current time from a {ts: value} dict.
 
+        All forecast attribute dicts produced by normalise_to_5min_day use
+        ``YYYY-MM-DDTHH:MM`` keys (minute precision, no seconds, no TZ offset).
+
         Lookup order:
-          1. Exact 5-min snapped key  (e.g. T10:15:00+…)
-          2. Prefix match on HH:MM    (handles tz-offset format variations)
-          3. Hourly key T10:00:00+…   (for raw_forecast and tomorrow slots)
-          4. Any slot starting with T10:  (current hour, any minute)
-          5. 0.0                          (night / no data)
+          1. Exact 5-min snapped key  (e.g. ``2025-06-02T10:15``)
+          2. Any key starting with ``YYYY-MM-DDTHH:`` (current hour fallback)
+          3. 0.0                          (night / no data)
         """
         if not slots:
             return 0.0
@@ -154,28 +155,17 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
         snapped = now.replace(minute=snapped_min)
 
         # 1. Exact 5-min key
-        key = snapped.isoformat()
+        key = snapped.strftime("%Y-%m-%dT%H:%M")
         if key in slots:
             return slots[key]
 
-        # 2. Prefix HH:MM match
-        prefix = snapped.strftime("%Y-%m-%dT%H:%M")
-        for ts, val in slots.items():
-            if ts.startswith(prefix):
-                return val
-
-        # 3. Hourly key (raw_forecast uses minute=0 keys)
-        hour_key = now.replace(minute=0).isoformat()
-        if hour_key in slots:
-            return slots[hour_key]
-
-        # 4. Any slot in current hour
+        # 2. Any slot in current hour (fallback for raw/tomorrow with different granularity)
         hour_prefix = snapped.strftime("%Y-%m-%dT%H:")
         for ts, val in slots.items():
             if ts.startswith(hour_prefix):
                 return val
 
-        # 5. No slot for this time (e.g. night, no training data)
+        # 3. No slot for this time (e.g. night, no training data)
         return 0.0
 
 

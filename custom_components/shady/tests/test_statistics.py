@@ -135,3 +135,34 @@ class TestStartParsing:
         rows_out = result.get("sensor.pv", [])
         assert len(rows_out) == 1
         assert rows_out[0]["start"].hour == 10
+
+    @pytest.mark.asyncio
+    async def test_fetch_statistics_passes_units_none(self):
+        """statistics_during_period must be called with units=None.
+
+        Omitting units raises TypeError in HA 2024.12+ where units became
+        a required positional argument.
+        """
+        from shady.statistics import fetch_statistics
+
+        rows = [{"start": dt(10), "mean": 100.0}]
+        mock_result = {"sensor.pv": rows}
+        captured: dict = {}
+
+        def mock_sdp(*args, **kwargs):
+            captured.update(kwargs)
+            return mock_result
+
+        mock_recorder = MagicMock()
+        mock_recorder.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
+
+        hass = MagicMock()
+
+        with (
+            patch("shady.statistics.statistics_during_period", mock_sdp),
+            patch("shady.statistics.get_recorder", return_value=mock_recorder),
+        ):
+            await fetch_statistics(hass, ["sensor.pv"], dt(0))
+
+        assert "units" in captured, "units kwarg missing – will break on HA 2024.12+"
+        assert captured["units"] is None
