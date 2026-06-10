@@ -34,7 +34,6 @@ _ENTITY_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sens
 _ENTITY_MULTI_SEL = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", multiple=True)
 )
-_ENTITY_OPT_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 _ALGORITHM_SEL = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=ALGORITHM_OPTIONS,
@@ -62,18 +61,10 @@ def _schema(d: dict) -> vol.Schema:
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
             # --- system I/O sensors (all optional) ---
-            vol.Optional(CONF_GRID_IMPORT, default=_get(CONF_GRID_IMPORT)): vol.Any(
-                None, str, _ENTITY_OPT_SEL
-            ),
-            vol.Optional(CONF_GRID_EXPORT, default=_get(CONF_GRID_EXPORT)): vol.Any(
-                None, str, _ENTITY_OPT_SEL
-            ),
-            vol.Optional(CONF_BATTERY_IMPORT, default=_get(CONF_BATTERY_IMPORT)): vol.Any(
-                None, str, _ENTITY_OPT_SEL
-            ),
-            vol.Optional(CONF_BATTERY_EXPORT, default=_get(CONF_BATTERY_EXPORT)): vol.Any(
-                None, str, _ENTITY_OPT_SEL
-            ),
+            vol.Optional(CONF_GRID_IMPORT, default=_get(CONF_GRID_IMPORT)): _ENTITY_SEL,
+            vol.Optional(CONF_GRID_EXPORT, default=_get(CONF_GRID_EXPORT)): _ENTITY_SEL,
+            vol.Optional(CONF_BATTERY_IMPORT, default=_get(CONF_BATTERY_IMPORT)): _ENTITY_SEL,
+            vol.Optional(CONF_BATTERY_EXPORT, default=_get(CONF_BATTERY_EXPORT)): _ENTITY_SEL,
             # --- effective sensor switch (options only) ---
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,
