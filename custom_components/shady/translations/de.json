@@ -8,10 +8,20 @@
           "fc_sensor": "Forecast-Referenz-Sensor (Recorder)",
           "pv_sensors": "PV-String-Sensoren (mindestens 1 erforderlich)",
           "history_days": "Tage Recorder-Historie",
-          "algorithm": "Korrektur-Algorithmus"
+          "algorithm": "Korrektur-Algorithmus",
+          "grid_import": "Netzbezug-Sensor (optional)",
+          "grid_export": "Netzeinspeisung-Sensor (optional)",
+          "battery_import": "Batterie-Lade-Sensor (optional)",
+          "battery_export": "Batterie-Entlade-Sensor (optional)",
+          "use_effective_sensors": "Verlustbereingte effektive Sensoren für das Korrekturmodell verwenden"
         },
         "data_description": {
-          "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde"
+          "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde",
+          "grid_import": "Leistung aus dem Netz. Positiv = Bezug. Leer lassen falls nicht vorhanden.",
+          "grid_export": "Leistung ins Netz. Positiv = Einspeisung. Leer lassen falls nicht vorhanden.",
+          "battery_import": "Ladeleistung Batterie. Positiv = Laden. Leer lassen falls nicht vorhanden.",
+          "battery_export": "Entladeleistung Batterie. Positiv = Entladen. Leer lassen falls nicht vorhanden.",
+          "use_effective_sensors": "Wenn aktiviert, verwendet das Korrekturmodell die verlustbereinigten effektiven PV-Werte statt der Roh-PV-Sensoren."
         }
       }
     },
@@ -27,10 +37,20 @@
           "fc_sensor": "Forecast-Referenz-Sensor (Recorder)",
           "pv_sensors": "PV-String-Sensoren (mindestens 1 erforderlich)",
           "history_days": "Tage Recorder-Historie",
-          "algorithm": "Korrektur-Algorithmus"
+          "algorithm": "Korrektur-Algorithmus",
+          "grid_import": "Netzbezug-Sensor (optional)",
+          "grid_export": "Netzeinspeisung-Sensor (optional)",
+          "battery_import": "Batterie-Lade-Sensor (optional)",
+          "battery_export": "Batterie-Entlade-Sensor (optional)",
+          "use_effective_sensors": "Verlustbereinigte effektive Sensoren für das Korrekturmodell verwenden"
         },
         "data_description": {
-          "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde"
+          "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde",
+          "grid_import": "Leistung aus dem Netz. Positiv = Bezug. Leer lassen falls nicht vorhanden.",
+          "grid_export": "Leistung ins Netz. Positiv = Einspeisung. Leer lassen falls nicht vorhanden.",
+          "battery_import": "Ladeleistung Batterie. Positiv = Laden. Leer lassen falls nicht vorhanden.",
+          "battery_export": "Entladeleistung Batterie. Positiv = Entladen. Leer lassen falls nicht vorhanden.",
+          "use_effective_sensors": "Wenn aktiviert, verwendet das Korrekturmodell die verlustbereinigten effektiven PV-Werte statt der Roh-PV-Sensoren."
         }
       }
     }
