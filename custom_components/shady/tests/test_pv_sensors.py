@@ -90,7 +90,7 @@ class TestStringCurrentSensorMetadata:
     def test_unique_id_format(self):
         """unique_id = '{entry_id}_forecast_{slug}'"""
         sensor = self._make_sensor("sensor.pv_string_dach_ost")
-        assert sensor._attr_unique_id == "test_entry_id_forecast_pv_string_dach_ost"
+        assert sensor._attr_unique_id == "test_entry_id_pv_string_dach_ost_fc"
 
     def test_unique_id_no_legacy_suffix(self):
         """unique_id must not contain old _pv_sensor_N suffix."""
@@ -100,16 +100,16 @@ class TestStringCurrentSensorMetadata:
 
     def test_unique_id_contains_forecast(self):
         sensor = self._make_sensor("sensor.pv_string_dach_ost")
-        assert "forecast" in sensor._attr_unique_id
+        assert sensor._attr_unique_id.endswith("_fc")
 
     def test_attr_name_format(self):
         """_attr_name = 'Shady Forecast {slug}'"""
         sensor = self._make_sensor("sensor.pv_string_dach_ost")
-        assert sensor._attr_name == "Shady Forecast pv_string_dach_ost"
+        assert sensor._attr_name == "Solar String pv_string_dach_ost Forecast"
 
     def test_attr_name_starts_with_shady(self):
         sensor = self._make_sensor("sensor.my_pv")
-        assert sensor._attr_name.startswith("Shady Forecast")
+        assert sensor._attr_name.startswith("Solar String")
 
     def test_attr_name_no_hourly(self):
         """'Hourly' must not appear in the new name."""

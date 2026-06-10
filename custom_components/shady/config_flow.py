@@ -14,13 +14,19 @@ from homeassistant.helpers import selector
 from .const import (
     ALGORITHM_OPTIONS,
     CONF_ALGORITHM,
+    CONF_BATTERY_EXPORT,
+    CONF_BATTERY_IMPORT,
     CONF_FC_SENSOR,
+    CONF_GRID_EXPORT,
+    CONF_GRID_IMPORT,
     CONF_HISTORY_DAYS,
     CONF_PV_SENSORS,
+    CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_ALGORITHM,
     DEFAULT_FC_SENSOR,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_NAME,
+    DEFAULT_USE_EFFECTIVE_SENSORS,
     DOMAIN,
 )
 
@@ -28,6 +34,7 @@ _ENTITY_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sens
 _ENTITY_MULTI_SEL = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", multiple=True)
 )
+_ENTITY_OPT_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 _ALGORITHM_SEL = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=ALGORITHM_OPTIONS,
@@ -35,6 +42,7 @@ _ALGORITHM_SEL = selector.SelectSelector(
         mode=selector.SelectSelectorMode.LIST,
     )
 )
+_BOOL_SEL = selector.BooleanSelector()
 
 
 def _schema(d: dict) -> vol.Schema:
@@ -53,6 +61,24 @@ def _schema(d: dict) -> vol.Schema:
             vol.Required(
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
+            # --- system I/O sensors (all optional) ---
+            vol.Optional(CONF_GRID_IMPORT, default=_get(CONF_GRID_IMPORT)): vol.Any(
+                None, str, _ENTITY_OPT_SEL
+            ),
+            vol.Optional(CONF_GRID_EXPORT, default=_get(CONF_GRID_EXPORT)): vol.Any(
+                None, str, _ENTITY_OPT_SEL
+            ),
+            vol.Optional(CONF_BATTERY_IMPORT, default=_get(CONF_BATTERY_IMPORT)): vol.Any(
+                None, str, _ENTITY_OPT_SEL
+            ),
+            vol.Optional(CONF_BATTERY_EXPORT, default=_get(CONF_BATTERY_EXPORT)): vol.Any(
+                None, str, _ENTITY_OPT_SEL
+            ),
+            # --- effective sensor switch (options only) ---
+            vol.Optional(
+                CONF_USE_EFFECTIVE_SENSORS,
+                default=_get(CONF_USE_EFFECTIVE_SENSORS, DEFAULT_USE_EFFECTIVE_SENSORS),
+            ): _BOOL_SEL,
         }
     )
 

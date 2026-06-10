@@ -64,11 +64,12 @@ async def async_setup_entry(
         SolarForecastCurrentRawSensor(coordinator, entry),
     ]
 
-    # One forecast sensor per configured PV string
+    # One forecast sensor + one effective sensor per configured PV string
     d = entry.options or entry.data
     for entity_id in d.get(CONF_PV_SENSORS, []):
         if entity_id:
             entities.append(SolarForecastStringCurrentSensor(coordinator, entry, entity_id))
+            entities.append(EffectiveStringSensor(coordinator, entry, entity_id))
 
     async_add_entities(entities)
 
@@ -306,3 +307,47 @@ class SolarForecastStringCurrentSensor(_Base):
             ),
             "pv_sensor": self._pv_entity_id,
         }
+
+
+# ---------------------------------------------------------------------------
+# Sensor 6+: effective string power (loss-adjusted current value)
+# ---------------------------------------------------------------------------
+
+
+class EffectiveStringSensor(_Base):
+    """Effective (loss-adjusted) power for a single PV string.
+
+    Entity ID pattern: sensor.shady_<slug>_pv_eff
+    Unit and device_class are derived from the FC sensor (same as all _Base sensors).
+    State class is never total_increasing; measurement or total only.
+    """
+
+    _attr_icon = "mdi:solar-panel-large"
+
+    def __init__(
+        self,
+        coordinator: ShadyCoordinator,
+        entry: ConfigEntry,
+        pv_entity_id: str,
+    ) -> None:
+        slug = _entity_id_to_slug(pv_entity_id)
+        super().__init__(coordinator, entry, f"{slug}_pv_eff")
+        self._pv_entity_id = pv_entity_id
+        self._attr_name = f"Solar String {slug} Effective"
+
+    def _sync_unit_attrs(self) -> None:
+        """Override: derive unit from fc_sensor but force non-total_increasing state_class."""
+        super()._sync_unit_attrs()
+        # Effective power is a measurement, never a running total
+        from homeassistant.components.sensor import SensorStateClass
+
+        if self._attr_state_class == SensorStateClass.TOTAL_INCREASING:
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def native_value(self) -> float | None:
+        return self._data.effective_string_values.get(self._pv_entity_id)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return {"pv_sensor": self._pv_entity_id}

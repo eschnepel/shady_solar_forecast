@@ -27,3 +27,24 @@ ALGORITHM_LINEAR = "linear"  # per-5-min-bucket WLS: pv ~ slope*fc + intercept
 ALGORITHM_QUADRATIC = "quadratic"  # per-5-min-bucket WLS: pv ~ a*fc² + b*fc + c
 
 ALGORITHM_OPTIONS = [ALGORITHM_FACTOR, ALGORITHM_LINEAR, ALGORITHM_QUADRATIC]
+
+# System I/O sensor config keys (all optional, each a single entity_id or empty)
+CONF_GRID_IMPORT = "grid_import"
+CONF_GRID_EXPORT = "grid_export"
+CONF_BATTERY_IMPORT = "battery_import"
+CONF_BATTERY_EXPORT = "battery_export"
+
+SYSTEM_SENSOR_KEYS: list[str] = [
+    CONF_GRID_IMPORT,
+    CONF_GRID_EXPORT,
+    CONF_BATTERY_IMPORT,
+    CONF_BATTERY_EXPORT,
+]
+
+# Use effective (loss-corrected) PV strings instead of raw sensors in the model
+CONF_USE_EFFECTIVE_SENSORS = "use_effective_sensors"
+DEFAULT_USE_EFFECTIVE_SENSORS = False
+
+# Storage key for effective string history cache
+EFFECTIVE_STORAGE_KEY = "shady.effective_history"
+EFFECTIVE_STORAGE_VERSION = 1
