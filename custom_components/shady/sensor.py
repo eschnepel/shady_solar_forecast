@@ -185,11 +185,11 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
 
 
 class SolarForecastCurrentSensor(_Base):
-    _attr_name = "Solar Forecast Hourly"
+    _attr_name = "Solar Forecast Current"
     _attr_icon = "mdi:solar-power"
 
     def __init__(self, coordinator: ShadyCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "solar_forecast_hourly")
+        super().__init__(coordinator, entry, "fc_current")
 
     @property
     def native_value(self) -> float | None:
@@ -218,7 +218,7 @@ class SolarForecastTodaySensor(_Base):
     _attr_icon = "mdi:white-balance-sunny"
 
     def __init__(self, coordinator: ShadyCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "solar_forecast_today")
+        super().__init__(coordinator, entry, "fc_today")
 
     @property
     def native_value(self) -> float | None:
@@ -236,7 +236,7 @@ class SolarForecastRemainingSensor(_Base):
     _attr_icon = "mdi:solar-power-variant"
 
     def __init__(self, coordinator: ShadyCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "solar_forecast_remaining")
+        super().__init__(coordinator, entry, "fc_remaining")
 
     @property
     def native_value(self) -> float | None:
@@ -250,11 +250,11 @@ class SolarForecastRemainingSensor(_Base):
 
 
 class SolarForecastCurrentRawSensor(_Base):
-    _attr_name = "Solar Forecast Hourly Raw"
+    _attr_name = "Solar Forecast Raw"
     _attr_icon = "mdi:solar-power-variant-outline"
 
     def __init__(self, coordinator: ShadyCoordinator, entry: ConfigEntry) -> None:
-        super().__init__(coordinator, entry, "solar_forecast_hourly_raw")
+        super().__init__(coordinator, entry, "fc_raw")
 
     @property
     def native_value(self) -> float | None:
@@ -289,9 +289,9 @@ class SolarForecastStringCurrentSensor(_Base):
         pv_entity_id: str,
     ) -> None:
         slug = _entity_id_to_slug(pv_entity_id)
-        super().__init__(coordinator, entry, f"forecast_{slug}")
+        super().__init__(coordinator, entry, f"{slug}_fc")
         self._pv_entity_id = pv_entity_id
-        self._attr_name = f"Shady Forecast {slug}"
+        self._attr_name = f"Solar String {slug} Forecast"
 
     @property
     def native_value(self) -> float | None:
