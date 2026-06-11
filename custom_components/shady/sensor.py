@@ -23,6 +23,7 @@ Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
 
 from __future__ import annotations
 
+import importlib.metadata
 import logging
 import re
 from datetime import timedelta
@@ -48,6 +49,25 @@ from shadylib import parse_dt as _parse_dt
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _sw_version() -> str:
+    """Return 'shady {ver} / shadylib {ver}' from manifest and importlib.metadata."""
+    import json
+    import pathlib
+
+    try:
+        manifest = json.loads((pathlib.Path(__file__).parent / "manifest.json").read_text())
+        shady_ver = manifest.get("version", "unknown")
+    except Exception:
+        shady_ver = "unknown"
+
+    try:
+        shadylib_ver = importlib.metadata.version("shadylib")
+    except importlib.metadata.PackageNotFoundError:
+        shadylib_ver = "unknown"
+
+    return f"shady {shady_ver} / shadylib {shadylib_ver}"
 
 
 async def async_setup_entry(
@@ -95,6 +115,7 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
             name="Shady",
             manufacturer="Enrico Schnepel",
             entry_type="service",
+            sw_version=_sw_version(),
         )
         # Set initial unit/state_class from defaults; updated on each coordinator refresh
         self._sync_unit_attrs()
