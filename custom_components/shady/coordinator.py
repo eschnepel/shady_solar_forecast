@@ -50,6 +50,7 @@ from .const import (
     CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
     SYSTEM_SENSOR_KEYS,
+    CACHE_VERSION,
 )
 from .forecast import fetch_raw_forecast
 from .units import (
@@ -70,7 +71,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _FALLBACK_INTERVAL = timedelta(hours=1)
 _STORAGE_KEY = f"{DOMAIN}.last_forecast"
-_STORAGE_VERSION = 1
+_STORAGE_VERSION = CACHE_VERSION
 
 
 # ---------------------------------------------------------------------------

@@ -47,4 +47,12 @@ DEFAULT_USE_EFFECTIVE_SENSORS = False
 
 # Storage key for effective string history cache
 EFFECTIVE_STORAGE_KEY = "shady.effective_history"
-EFFECTIVE_STORAGE_VERSION = 1
+
+# Cache version – increment this on every release that changes forecast
+# calculation logic (algorithm, unit handling, effective-sensor pipeline,
+# etc.).  Both the last-forecast store and the effective-history store use
+# this version so that stale cached data is automatically discarded after
+# an update.
+CACHE_VERSION = 2
+
+EFFECTIVE_STORAGE_VERSION = CACHE_VERSION
