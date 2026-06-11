@@ -124,7 +124,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await coordinator.async_setup()
     except Exception as err:
-        raise ConfigEntryNotReady(f"Solar forecast not available: {err}") from err
+        raise ConfigEntryNotReady(
+            f"Solar forecast not available: {type(err).__name__}: {err}"
+        ) from err
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
