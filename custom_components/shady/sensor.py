@@ -50,24 +50,26 @@ from shadylib import parse_dt as _parse_dt
 
 _LOGGER = logging.getLogger(__name__)
 
+# Read manifest.json once at import time to avoid blocking I/O inside the event loop.
+try:
+    import json as _json
+    import pathlib as _pathlib
+
+    _SHADY_VERSION: str = _json.loads(
+        (_pathlib.Path(__file__).parent / "manifest.json").read_text()
+    ).get("version", "unknown")
+except Exception:
+    _SHADY_VERSION = "unknown"
+
+try:
+    _SHADYLIB_VERSION: str = importlib.metadata.version("shadylib")
+except importlib.metadata.PackageNotFoundError:
+    _SHADYLIB_VERSION = "unknown"
+
 
 def _sw_version() -> str:
-    """Return 'shady {ver} / shadylib {ver}' from manifest and importlib.metadata."""
-    import json
-    import pathlib
-
-    try:
-        manifest = json.loads((pathlib.Path(__file__).parent / "manifest.json").read_text())
-        shady_ver = manifest.get("version", "unknown")
-    except Exception:
-        shady_ver = "unknown"
-
-    try:
-        shadylib_ver = importlib.metadata.version("shadylib")
-    except importlib.metadata.PackageNotFoundError:
-        shadylib_ver = "unknown"
-
-    return f"shady {shady_ver} / shadylib {shadylib_ver}"
+    """Return 'shady {ver} / shadylib {ver}' (read at module import time)."""
+    return f"shady {_SHADY_VERSION} / shadylib {_SHADYLIB_VERSION}"
 
 
 async def async_setup_entry(
