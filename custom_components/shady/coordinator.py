@@ -62,10 +62,34 @@ from .units import (
 from shadylib import apply_corrections as _shadylib_apply_corrections
 from shadylib import compute_effective_strings, split_combined_sensor
 from shadylib.math_utils import aggregate_to_hours
-
 from shadylib import r, parse_dt
 from .statistics import fetch_statistics
 from .effective_history import EffectiveHistoryStore
+
+
+class _DiscardOnMigrationStore(Store):
+    """Store subclass that silently discards cached data on any version mismatch.
+
+    Both forecast stores in Shady hold *cache* data only – there is no
+    user-configured state that needs to be preserved across version changes.
+    When the major storage version is bumped the old cached data is simply
+    discarded so that a fresh forecast cycle can populate it again.
+
+    Without this override ``homeassistant.helpers.storage.Store`` raises
+    ``NotImplementedError`` on a major-version mismatch, which propagates
+    through ``coordinator.async_setup()`` and prevents the integration from
+    loading (``ConfigEntryNotReady`` retry loop).
+    """
+
+    async def _async_migrate_func(
+        self,
+        old_major_version: int,
+        old_minor_version: int,
+        old_data: Any,
+    ) -> None:
+        """Discard stale cache – migration is not needed for cache-only stores."""
+        return None
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -121,7 +145,9 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=_FALLBACK_INTERVAL)
         self._entry = entry
         self._unsub_listener: Any = None
-        self._store: Store = Store(hass, _STORAGE_VERSION, _STORAGE_KEY)
+        self._store: _DiscardOnMigrationStore = _DiscardOnMigrationStore(
+            hass, _STORAGE_VERSION, _STORAGE_KEY
+        )
         self._effective_store = EffectiveHistoryStore(hass)
         # Cache unit/state_class per entity_id – sensor units don't change at runtime
         self._unit_cache: dict[str, tuple[str, str]] = {}

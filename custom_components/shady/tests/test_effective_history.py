@@ -38,7 +38,7 @@ class TestEffectiveHistoryStoreLoadSave:
         hass = MagicMock()
         store_mock = MagicMock()
         store_mock.async_load = AsyncMock(return_value=None)
-        with patch("shady.effective_history.Store", return_value=store_mock):
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
             s = self._make_store(hass)
             await s.async_load()
         assert s._cache == {}
@@ -57,7 +57,7 @@ class TestEffectiveHistoryStoreLoadSave:
         }
         store_mock = MagicMock()
         store_mock.async_load = AsyncMock(return_value=stored)
-        with patch("shady.effective_history.Store", return_value=store_mock):
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
             s = self._make_store(hass)
             await s.async_load()
         assert "sensor.pv1" in s._cache
@@ -68,7 +68,7 @@ class TestEffectiveHistoryStoreLoadSave:
         hass = MagicMock()
         store_mock = MagicMock()
         store_mock.async_load = AsyncMock(return_value=None)
-        with patch("shady.effective_history.Store", return_value=store_mock):
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
             s = self._make_store(hass)
             await s.async_load()
         s._cache["sensor.pv1"] = {"slot1": 42.0}
@@ -90,7 +90,7 @@ class TestEffectiveHistoryBackfill:
         store_mock.async_load = AsyncMock(return_value=store_data)
         store_mock.async_save = AsyncMock()
 
-        with patch("shady.effective_history.Store", return_value=store_mock):
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
             s = EffectiveHistoryStore(hass)
 
         return s, store_mock
