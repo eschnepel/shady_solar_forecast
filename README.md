@@ -18,8 +18,8 @@ Energy Dashboard forecast  →  {ISO-timestamp: Wh}  (native provider resolution
 ┌─────────────────────────────────────────────────────────────┐
 │  Per-string, per-5-min-bucket correction                    │
 │                                                             │
-│  Each forecast slot is matched to its exact 5-min bucket.  │
-│  Slots without a bucket model → 0.0 (e.g. night hours).    │
+│  Each forecast slot is matched to its exact 5-min bucket.   │
+│  Slots without a bucket model → 0.0 (e.g. night hours).     │
 └─────────────────────────────────────────────────────────────┘
         │
         ├── Today   → retains provider's native resolution
@@ -58,7 +58,15 @@ If all string models fail, the raw forecast is passed through unchanged.
 
 ### Effective Sensor Mode
 
-When **Use effective sensors** is enabled, Shady computes loss-corrected PV string values before training the correction models. System-level losses (grid import/export, battery import/export) are distributed across strings using a waterfall cascade algorithm (implemented in [shadylib](https://github.com/eschnepel/shadylib)). This produces more accurate models when inverter output is regularly reduced by grid export limits or battery charging.
+When **Use effective sensors** is enabled, Shady computes loss-corrected PV string values before training the correction models.
+
+The BMS (inverter/battery system) reports two grid-side sensors: **grid export** (power fed into the house grid from PV and/or battery discharge) and **grid import** (power drawn from the house grid, e.g. to charge the battery). The usable PV power is derived as:
+
+```
+pv_usable = (grid_export + battery_import) − (grid_import + battery_export)
+```
+
+This removes the contribution of battery discharge and grid import so that only the PV-sourced portion remains. The resulting losses are distributed across PV strings using a waterfall cascade algorithm (implemented in [shadylib](https://github.com/eschnepel/shadylib)). This produces more accurate models when inverter output is regularly reduced by grid export limits or battery charging.
 
 ### Supported Input Units
 
@@ -127,10 +135,10 @@ The last successful forecast is saved to HA storage and restored on restart so s
 | **PV string sensors** | ✓ | One or more actual production sensors (5-min recorder statistics required); at least 1 required |
 | **History days** | – | Days of 5-min recorder history used for model training (default: 28, range: 7–365) |
 | **Correction algorithm** | – | `factor`, `linear` (default), or `quadratic` |
-| **Grid import sensor** | – | Sensor measuring power drawn from the grid (positive values only) |
-| **Grid export sensor** | – | Sensor measuring power fed into the grid (positive values only) |
-| **Battery import sensor** | – | Sensor measuring power drawn from the battery |
-| **Battery export sensor** | – | Sensor measuring power fed into the battery |
+| **BMS grid import sensor** | – | Power the BMS draws from the house grid (e.g. to charge the battery). Positive values only. |
+| **BMS grid export sensor** | – | Power the BMS feeds into the house grid (from PV and/or battery discharge). Positive values only. |
+| **Battery charge sensor** | – | Power flowing into the battery (charging). Positive values only. |
+| **Battery discharge sensor** | – | Power flowing out of the battery (discharging). Positive values only. |
 | **Use effective sensors** | – | Train models on loss-corrected PV values (requires at least one system I/O sensor; default: off) |
 
 All options can be changed later via **Settings → Devices & Services → Shady → Configure**.

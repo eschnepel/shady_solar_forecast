@@ -108,7 +108,8 @@ class TestEffectiveHistoryBackfill:
         hass = MagicMock()
         s, store_mock = self._make_store_with_patches(hass, None)
 
-        # One slot: PV1=200W, PV2=200W, grid_export=300W → loss=100 → each -50 → 150W
+        # One slot: PV1=200W, PV2=200W, grid_export=300W
+        # pv_usable = 300W, total_loss = 400W - 300W = 100W → even split → 150W each
         slot = "2025-06-01T10:00:00+00:00"
         stats = {
             "sensor.pv1": [{"start": datetime.fromisoformat(slot), "mean": 200.0}],
@@ -184,3 +185,112 @@ class TestEffectiveHistoryBackfill:
 
         store_mock.async_save.assert_not_called()
         assert s._cache == {}
+
+
+# ---------------------------------------------------------------------------
+# BMS pv_usable formula
+# ---------------------------------------------------------------------------
+
+
+class TestPvUsableFormula:
+    """Unit-level tests for the pv_usable computation embedded in backfill.
+
+    pv_usable = max(0, (grid_export + battery_import) - (grid_import + battery_export))
+    total_loss = pv_sum - pv_usable
+    """
+
+    def _make_store_with_patches(self, hass, cached_until):
+        from shady.effective_history import EffectiveHistoryStore
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        store_mock = MagicMock()
+        store_mock.async_load = AsyncMock(return_value=None)
+        store_mock.async_save = AsyncMock()
+
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
+            s = EffectiveHistoryStore(hass)
+        return s, store_mock
+
+    async def _run_backfill(self, pv_mean, system_cfg, system_means):
+        from datetime import datetime
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        hass = MagicMock()
+        s, _ = self._make_store_with_patches(hass, None)
+        slot = "2025-06-01T10:00:00+00:00"
+
+        stats = {"sensor.pv1": [{"start": datetime.fromisoformat(slot), "mean": pv_mean}]}
+        for sensor_id, mean in system_means.items():
+            stats[sensor_id] = [{"start": datetime.fromisoformat(slot), "mean": mean}]
+
+        with (
+            patch("shady.effective_history.fetch_statistics", AsyncMock(return_value=stats)),
+            patch(
+                "shady.effective_history.detect_unit",
+                AsyncMock(return_value=("W", "measurement")),
+            ),
+        ):
+            await s.async_backfill_if_needed(["sensor.pv1"], system_cfg, 7)
+        return s.get_slots("sensor.pv1").get(slot)
+
+    @pytest.mark.asyncio
+    async def test_only_grid_export_reduces_pv(self):
+        # PV=300W, grid_export=200W -> pv_usable=200 -> loss=100 -> effective < raw
+        val = await self._run_backfill(
+            pv_mean=300.0,
+            system_cfg={"grid_export": "sensor.grid_export"},
+            system_means={"sensor.grid_export": 200.0},
+        )
+        assert val is not None
+        assert val < 300.0 * (5 / 60)
+
+    @pytest.mark.asyncio
+    async def test_battery_discharge_reduces_pv_usable(self):
+        # battery_export offsets grid_export: pv_usable = 200-100 = 100 -> more loss
+        val_without = await self._run_backfill(
+            pv_mean=300.0,
+            system_cfg={"grid_export": "sensor.grid_export"},
+            system_means={"sensor.grid_export": 200.0},
+        )
+        val_with_discharge = await self._run_backfill(
+            pv_mean=300.0,
+            system_cfg={
+                "grid_export": "sensor.grid_export",
+                "battery_export": "sensor.battery_export",
+            },
+            system_means={"sensor.grid_export": 200.0, "sensor.battery_export": 100.0},
+        )
+        assert val_with_discharge is not None
+        assert val_without is not None
+        assert val_with_discharge <= val_without
+
+    @pytest.mark.asyncio
+    async def test_grid_import_reduces_pv_usable(self):
+        # grid_import reduces pv_usable -> more loss -> lower effective
+        val_without_import = await self._run_backfill(
+            pv_mean=300.0,
+            system_cfg={"grid_export": "sensor.grid_export"},
+            system_means={"sensor.grid_export": 200.0},
+        )
+        val_with_import = await self._run_backfill(
+            pv_mean=300.0,
+            system_cfg={
+                "grid_export": "sensor.grid_export",
+                "grid_import": "sensor.grid_import",
+            },
+            system_means={"sensor.grid_export": 200.0, "sensor.grid_import": 50.0},
+        )
+        assert val_with_import is not None
+        assert val_with_import <= val_without_import
+
+    @pytest.mark.asyncio
+    async def test_pv_usable_clamped_to_zero_when_sources_exceed_output(self):
+        # Only grid_import, no grid_export: pv_usable = max(0, 0-200) = 0
+        # -> total_loss = pv_sum -> all effective = 0
+        val = await self._run_backfill(
+            pv_mean=200.0,
+            system_cfg={"grid_import": "sensor.grid_import"},
+            system_means={"sensor.grid_import": 200.0},
+        )
+        assert val is not None
+        assert val == 0.0

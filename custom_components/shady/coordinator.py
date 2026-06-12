@@ -60,7 +60,7 @@ from .units import (
     wh_to_unit,
 )
 from shadylib import apply_corrections as _shadylib_apply_corrections
-from shadylib import compute_effective_strings, split_combined_sensor
+from shadylib import compute_effective_strings
 from shadylib.math_utils import aggregate_to_hours
 from shadylib import r, parse_dt
 from .statistics import fetch_statistics
@@ -249,22 +249,44 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         def _sys(conf_key: str) -> float:
             return _state_val(system_cfg.get(conf_key))
 
-        grid_import_raw = _sys(CONF_GRID_IMPORT)
-        grid_export_raw = _sys(CONF_GRID_EXPORT)
-        battery_import_raw = _sys(CONF_BATTERY_IMPORT)
-        battery_export_raw = _sys(CONF_BATTERY_EXPORT)
-
-        grid_import_in, _ = split_combined_sensor(grid_import_raw)
-        grid_export_out = max(0.0, grid_export_raw)
-        battery_import_out = max(0.0, battery_import_raw)
-        battery_export_in = max(0.0, battery_export_raw)
+        # BMS sensor semantics
+        # ----------------------
+        # Each BMS sensor is bidirectional: positive values indicate the primary
+        # direction, negative values indicate the opposite direction within the
+        # same 5-minute aggregation slot.
+        #
+        #   grid_export_raw > 0  → BMS feeds power into the house grid
+        #   grid_export_raw < 0  → BMS draws power from the house grid (overlap)
+        #   grid_import_raw > 0  → BMS draws power from the house grid
+        #   grid_import_raw < 0  → BMS feeds power into the house grid (overlap)
+        #
+        # Both sensors of a pair can be non-zero within a 5-minute slot due to
+        # aggregation of sub-minute switching.  The net directional values are:
+        #
+        #   grid_export_net = max(0, grid_export_raw) + max(0, -grid_import_raw)
+        #   grid_import_net = max(0, grid_import_raw) + max(0, -grid_export_raw)
+        #
+        # Since max(0,x) - max(0,-x) = x, the full pv_usable expression simplifies
+        # to using the raw values directly:
+        #
+        #   pv_usable = max(0,
+        #       grid_export_raw - grid_import_raw
+        #     + battery_import_raw - battery_export_raw
+        #   )
+        #
+        # This is passed as grid_export to shadylib so that:
+        #   total_loss = pv_sum - pv_usable
+        pv_usable = max(
+            0.0,
+            _sys(CONF_GRID_EXPORT)
+            - _sys(CONF_GRID_IMPORT)
+            + _sys(CONF_BATTERY_IMPORT)
+            - _sys(CONF_BATTERY_EXPORT),
+        )
 
         effective = compute_effective_strings(
             pv_vals,
-            grid_import=grid_import_in,
-            grid_export=grid_export_out,
-            battery_import=battery_import_out,
-            battery_export=battery_export_in,
+            grid_export=pv_usable,
         )
 
         # Convert back to the PV sensor's native unit for display

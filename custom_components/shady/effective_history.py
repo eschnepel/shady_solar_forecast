@@ -48,7 +48,7 @@ from .const import (
 from .statistics import fetch_statistics
 from .units import to_wh_per_slot, detect_unit
 
-from shadylib import compute_effective_strings, split_combined_sensor
+from shadylib import compute_effective_strings
 
 
 class _DiscardOnMigrationStore(Store):
@@ -296,26 +296,45 @@ class EffectiveHistoryStore:
 
             pv_vals = [pv_slot_maps[eid].get(slot_key, 0.0) for eid in pv_sensors]
 
-            # Split combined sensor values into directional parts
-            grid_import_raw = _sys_val(CONF_GRID_IMPORT, slot_key)
-            grid_export_raw = _sys_val(CONF_GRID_EXPORT, slot_key)
-            battery_import_raw = _sys_val(CONF_BATTERY_IMPORT, slot_key)
-            battery_export_raw = _sys_val(CONF_BATTERY_EXPORT, slot_key)
-
-            # For import sensors: positive part → input; negative part ignored
-            # (the export sensor covers the negative direction)
-            grid_import_in, _ = split_combined_sensor(grid_import_raw)
-            _, grid_export_out = split_combined_sensor(-grid_export_raw)  # export is positive out
-            grid_export_out = max(0.0, grid_export_raw)  # export field: positive = out
-            battery_import_out = max(0.0, battery_import_raw)
-            battery_export_in = max(0.0, battery_export_raw)
+            # BMS sensor semantics
+            # ----------------------
+            # Each BMS sensor is bidirectional: positive values indicate the
+            # primary direction, negative values indicate the opposite direction
+            # within the same 5-minute aggregation slot.
+            #
+            #   grid_export_raw > 0  → BMS feeds power into the house grid
+            #   grid_export_raw < 0  → BMS draws power from the house grid (overlap)
+            #   grid_import_raw > 0  → BMS draws power from the house grid
+            #   grid_import_raw < 0  → BMS feeds power into the house grid (overlap)
+            #
+            # Both sensors of a pair can be non-zero within a 5-minute slot due
+            # to aggregation of sub-minute switching.  The net directional values
+            # are:
+            #
+            #   grid_export_net = max(0, grid_export_raw) + max(0, -grid_import_raw)
+            #   grid_import_net = max(0, grid_import_raw) + max(0, -grid_export_raw)
+            #
+            # Since max(0,x) - max(0,-x) = x, the full pv_usable expression
+            # simplifies to using the raw values directly:
+            #
+            #   pv_usable = max(0,
+            #       grid_export_raw - grid_import_raw
+            #     + battery_import_raw - battery_export_raw
+            #   )
+            #
+            # This is passed as grid_export to shadylib so that:
+            #   total_loss = pv_sum - pv_usable
+            pv_usable = max(
+                0.0,
+                _sys_val(CONF_GRID_EXPORT, slot_key)
+                - _sys_val(CONF_GRID_IMPORT, slot_key)
+                + _sys_val(CONF_BATTERY_IMPORT, slot_key)
+                - _sys_val(CONF_BATTERY_EXPORT, slot_key),
+            )
 
             effective = compute_effective_strings(
                 pv_vals,
-                grid_import=grid_import_in,
-                grid_export=grid_export_out,
-                battery_import=battery_import_out,
-                battery_export=battery_export_in,
+                grid_export=pv_usable,
             )
 
             for i, eid in enumerate(pv_sensors):

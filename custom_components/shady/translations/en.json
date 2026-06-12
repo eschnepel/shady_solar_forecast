@@ -9,18 +9,18 @@
           "pv_sensors": "PV string sensors (at least 1 required)",
           "history_days": "Days of recorder history",
           "algorithm": "Correction algorithm",
-          "grid_import": "Grid import sensor (optional)",
-          "grid_export": "Grid export sensor (optional)",
-          "battery_import": "Battery import / charge sensor (optional)",
-          "battery_export": "Battery export / discharge sensor (optional)",
+          "grid_import": "BMS grid import sensor (optional)",
+          "grid_export": "BMS grid export sensor (optional)",
+          "battery_import": "Battery charge sensor (optional)",
+          "battery_export": "Battery discharge sensor (optional)",
           "use_effective_sensors": "Use loss-adjusted effective sensors for model correction"
         },
         "data_description": {
           "algorithm": "Algorithm used to compute the per-hour shading correction",
-          "grid_import": "Power drawn from the grid. Positive = import. Leave empty if not available.",
-          "grid_export": "Power fed into the grid. Positive = export. Leave empty if not available.",
-          "battery_import": "Power used to charge the battery. Positive = charging. Leave empty if not available.",
-          "battery_export": "Power discharged from the battery. Positive = discharging. Leave empty if not available.",
+          "grid_import": "Power the BMS draws from the house grid (e.g. to charge the battery). Positive = import. Leave empty if not available.",
+          "grid_export": "Power the BMS feeds into the house grid (from PV and/or battery discharge). Positive = export. Leave empty if not available.",
+          "battery_import": "Power flowing into the battery (charging). Positive = charging. Leave empty if not available.",
+          "battery_export": "Power flowing out of the battery (discharging). Positive = discharging. Leave empty if not available.",
           "use_effective_sensors": "When enabled, the correction model uses the loss-adjusted effective PV sensor values instead of the raw PV sensors."
         }
       }
@@ -38,18 +38,18 @@
           "pv_sensors": "PV string sensors (at least 1 required)",
           "history_days": "Days of recorder history",
           "algorithm": "Correction algorithm",
-          "grid_import": "Grid import sensor (optional)",
-          "grid_export": "Grid export sensor (optional)",
-          "battery_import": "Battery import / charge sensor (optional)",
-          "battery_export": "Battery export / discharge sensor (optional)",
+          "grid_import": "BMS grid import sensor (optional)",
+          "grid_export": "BMS grid export sensor (optional)",
+          "battery_import": "Battery charge sensor (optional)",
+          "battery_export": "Battery discharge sensor (optional)",
           "use_effective_sensors": "Use loss-adjusted effective sensors for model correction"
         },
         "data_description": {
           "algorithm": "Algorithm used to compute the per-hour shading correction",
-          "grid_import": "Power drawn from the grid. Positive = import. Leave empty if not available.",
-          "grid_export": "Power fed into the grid. Positive = export. Leave empty if not available.",
-          "battery_import": "Power used to charge the battery. Positive = charging. Leave empty if not available.",
-          "battery_export": "Power discharged from the battery. Positive = discharging. Leave empty if not available.",
+          "grid_import": "Power the BMS draws from the house grid (e.g. to charge the battery). Positive = import. Leave empty if not available.",
+          "grid_export": "Power the BMS feeds into the house grid (from PV and/or battery discharge). Positive = export. Leave empty if not available.",
+          "battery_import": "Power flowing into the battery (charging). Positive = charging. Leave empty if not available.",
+          "battery_export": "Power flowing out of the battery (discharging). Positive = discharging. Leave empty if not available.",
           "use_effective_sensors": "When enabled, the correction model uses the loss-adjusted effective PV sensor values instead of the raw PV sensors."
         }
       }
