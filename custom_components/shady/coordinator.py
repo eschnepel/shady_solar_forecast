@@ -61,6 +61,7 @@ from .units import (
 )
 from shadylib import apply_corrections as _shadylib_apply_corrections
 from shadylib import compute_effective_strings
+from shadylib import normalise_em_to_5min
 from shadylib.math_utils import aggregate_to_hours
 from shadylib import r, parse_dt
 from .statistics import fetch_statistics
@@ -444,4 +445,9 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 s: to_wh_per_slot(stats.get(s, []), pv_units.get(s, "W")) for s in pv_sensors
             }
 
-        return _shadylib_apply_corrections(raw, fc_rows, pv_sensors_rows, algorithm)
+        # Normalise the EM forecast (arbitrary-interval timestamps) to a
+        # complete 5-minute Wh/slot raster before passing to the model.
+        # This ensures prediction inputs match the training scale (Wh/slot).
+        raw_normalised = normalise_em_to_5min(raw)
+
+        return _shadylib_apply_corrections(raw_normalised, fc_rows, pv_sensors_rows, algorithm)

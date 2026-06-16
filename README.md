@@ -12,21 +12,30 @@ The HA-independent correction logic lives in [shadylib](https://github.com/eschn
 ## How It Works
 
 ```
-Energy Dashboard forecast  →  {ISO-timestamp: Wh}  (native provider resolution)
+Energy Dashboard forecast  →  {ISO-timestamp: Wh}  (arbitrary provider resolution)
         │
         ▼
 ┌─────────────────────────────────────────────────────────────┐
+│  normalise_em_to_5min                                       │
+│                                                             │
+│  Distributes each EM value pro-rata across the 5-min slots  │
+│  it overlaps, including partial boundary slots.             │
+└─────────────────────────────────────────────────────────────┘
+        │
+        ▼  {ISO-timestamp: Wh/slot}  (5-minute raster)
+┌─────────────────────────────────────────────────────────────┐
 │  Per-string, per-5-min-bucket correction                    │
 │                                                             │
-│  Each forecast slot is matched to its exact 5-min bucket.   │
+│  Each 5-min slot is matched to its bucket model and         │
+│  corrected individually.                                    │
 │  Slots without a bucket model → 0.0 (e.g. night hours).     │
 └─────────────────────────────────────────────────────────────┘
         │
-        ├── Today   → retains provider's native resolution
+        ├── Today    → 5-minute slots
         └── Tomorrow → aggregated into full hours
 ```
 
-Shady reads the forecast directly from the Energy Dashboard API in whatever resolution the provider delivers (5-min, 30-min, hourly, or any other). Each slot is matched to the corresponding 5-min bucket model and corrected individually. The resulting slots are passed through unchanged for today, and aggregated into full hours for tomorrow.
+Shady reads the forecast from the Energy Dashboard API in whatever resolution the provider delivers (5-min, 30-min, hourly, or non-boundary intervals). Before correction, the forecast is normalised to a complete 5-minute raster using pro-rata distribution. Each resulting slot is then matched to the corresponding 5-min bucket model and corrected individually. Today's output retains 5-minute resolution; tomorrow's output is aggregated into full hours.
 
 ### Why 5-Minute Buckets?
 
@@ -165,10 +174,11 @@ All sensors are grouped under the **Shady** device. Values are rounded to 2 deci
 The `solar_forecast_current` sensor carries two forecast attributes:
 
 ```yaml
-# Today at provider's native resolution
+# Today in 5-minute slots (normalised from provider resolution)
 forecast:
   "2025-05-23T10:00:00+02:00": 287.40
-  "2025-05-23T10:30:00+02:00": 312.10
+  "2025-05-23T10:05:00+02:00": 287.40
+  "2025-05-23T10:10:00+02:00": 287.40
   ...
 
 # Tomorrow aggregated into full hours
@@ -178,7 +188,8 @@ forecast_tomorrow:
   ...
 ```
 
-The `solar_forecast_raw` sensor carries the full raw forecast:
+The `solar_forecast_raw` sensor carries the raw forecast as delivered by the
+Energy Manager (at the provider's native resolution, before normalisation):
 
 ```yaml
 forecast:
