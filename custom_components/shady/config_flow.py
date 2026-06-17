@@ -21,11 +21,13 @@ from .const import (
     CONF_GRID_IMPORT,
     CONF_HISTORY_DAYS,
     CONF_PV_SENSORS,
+    CONF_FILTER_RECORDER_GAPS,
     CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_ALGORITHM,
     DEFAULT_FC_SENSOR,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_NAME,
+    DEFAULT_FILTER_RECORDER_GAPS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
     DOMAIN,
 )
@@ -69,6 +71,11 @@ def _schema(d: dict) -> vol.Schema:
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,
                 default=_get(CONF_USE_EFFECTIVE_SENSORS, DEFAULT_USE_EFFECTIVE_SENSORS),
+            ): _BOOL_SEL,
+            # --- recorder data quality ---
+            vol.Optional(
+                CONF_FILTER_RECORDER_GAPS,
+                default=_get(CONF_FILTER_RECORDER_GAPS, DEFAULT_FILTER_RECORDER_GAPS),
             ): _BOOL_SEL,
         }
     )

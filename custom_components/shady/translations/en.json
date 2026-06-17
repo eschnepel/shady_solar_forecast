@@ -13,7 +13,8 @@
           "grid_export": "BMS grid export sensor (optional)",
           "battery_import": "Battery charge sensor (optional)",
           "battery_export": "Battery discharge sensor (optional)",
-          "use_effective_sensors": "Use loss-adjusted effective sensors for model correction"
+          "use_effective_sensors": "Use loss-adjusted effective sensors for model correction",
+          "filter_recorder_gaps": "Filter gap-successor samples from recorder data"
         },
         "data_description": {
           "algorithm": "Algorithm used to compute the per-hour shading correction",
@@ -21,7 +22,8 @@
           "grid_export": "Power the BMS feeds into the house grid (from PV and/or battery discharge). Positive = export. Leave empty if not available.",
           "battery_import": "Power flowing into the battery (charging). Positive = charging. Leave empty if not available.",
           "battery_export": "Power flowing out of the battery (discharging). Positive = discharging. Leave empty if not available.",
-          "use_effective_sensors": "When enabled, the correction model uses the loss-adjusted effective PV sensor values instead of the raw PV sensors."
+          "use_effective_sensors": "When enabled, the correction model uses the loss-adjusted effective PV sensor values instead of the raw PV sensors.",
+          "filter_recorder_gaps": "When enabled, the first recorder sample after a downtime gap longer than one slot interval (5 min) is discarded. This prevents accumulated recorder values from skewing the correction model and effective-history backfill."
         }
       }
     },
@@ -42,7 +44,8 @@
           "grid_export": "BMS grid export sensor (optional)",
           "battery_import": "Battery charge sensor (optional)",
           "battery_export": "Battery discharge sensor (optional)",
-          "use_effective_sensors": "Use loss-adjusted effective sensors for model correction"
+          "use_effective_sensors": "Use loss-adjusted effective sensors for model correction",
+          "filter_recorder_gaps": "Filter gap-successor samples from recorder data"
         },
         "data_description": {
           "algorithm": "Algorithm used to compute the per-hour shading correction",
@@ -50,7 +53,8 @@
           "grid_export": "Power the BMS feeds into the house grid (from PV and/or battery discharge). Positive = export. Leave empty if not available.",
           "battery_import": "Power flowing into the battery (charging). Positive = charging. Leave empty if not available.",
           "battery_export": "Power flowing out of the battery (discharging). Positive = discharging. Leave empty if not available.",
-          "use_effective_sensors": "When enabled, the correction model uses the loss-adjusted effective PV sensor values instead of the raw PV sensors."
+          "use_effective_sensors": "When enabled, the correction model uses the loss-adjusted effective PV sensor values instead of the raw PV sensors.",
+          "filter_recorder_gaps": "When enabled, the first recorder sample after a downtime gap longer than one slot interval (5 min) is discarded. This prevents accumulated recorder values from skewing the correction model and effective-history backfill."
         }
       }
     }

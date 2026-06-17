@@ -47,6 +47,8 @@ from .const import (
     CONF_GRID_EXPORT,
     CONF_BATTERY_IMPORT,
     CONF_BATTERY_EXPORT,
+    CONF_FILTER_RECORDER_GAPS,
+    DEFAULT_FILTER_RECORDER_GAPS,
     CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
     SYSTEM_SENSOR_KEYS,
@@ -61,7 +63,7 @@ from .units import (
 )
 from shadylib import apply_corrections as _shadylib_apply_corrections
 from shadylib import compute_effective_strings
-from shadylib import normalise_em_to_5min
+from shadylib import normalise_em_to_5min, filter_gap_successors
 from shadylib.math_utils import aggregate_to_hours
 from shadylib import r, parse_dt
 from .statistics import fetch_statistics
@@ -210,7 +212,12 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         pv_sensors = self._active_pv_sensors()
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
         system_cfg = self._system_sensor_cfg()
-        await self._effective_store.async_backfill_if_needed(pv_sensors, system_cfg, history_days)
+        await self._effective_store.async_backfill_if_needed(
+            pv_sensors,
+            system_cfg,
+            history_days,
+            filter_recorder_gaps=self._cfg(CONF_FILTER_RECORDER_GAPS, DEFAULT_FILTER_RECORDER_GAPS),
+        )
 
     def _compute_current_effective(
         self,
@@ -425,7 +432,16 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             _LOGGER.warning("Cannot fetch statistics: %s – using raw forecast", err)
             return dict(raw), {}
 
-        fc_rows = to_wh_per_slot(stats.get(fc_sensor, []), fc_unit)
+        # Optionally discard the first sample after any downtime gap wider
+        # than one slot before converting to Wh/slot. The HA recorder may
+        # have accumulated all missing values into that sample, which would
+        # skew bucket-model statistics (CONF_FILTER_RECORDER_GAPS).
+        _filter_gaps = self._cfg(CONF_FILTER_RECORDER_GAPS, DEFAULT_FILTER_RECORDER_GAPS)
+        raw_stats: dict[str, list[dict]] = {
+            eid: (filter_gap_successors(rows) if _filter_gaps else rows)
+            for eid, rows in stats.items()
+        }
+        fc_rows = to_wh_per_slot(raw_stats.get(fc_sensor, []), fc_unit)
 
         if use_effective:
             # Replace PV recorder history with effective (loss-adjusted) values
@@ -439,10 +455,10 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 else:
                     # Fallback to raw recorder data if no effective cache available
                     _LOGGER.debug("No effective history for %s – falling back to raw PV data", s)
-                    pv_sensors_rows[s] = to_wh_per_slot(stats.get(s, []), pv_units.get(s, "W"))
+                    pv_sensors_rows[s] = to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W"))
         else:
             pv_sensors_rows = {
-                s: to_wh_per_slot(stats.get(s, []), pv_units.get(s, "W")) for s in pv_sensors
+                s: to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W")) for s in pv_sensors
             }
 
         # Normalise the EM forecast (arbitrary-interval timestamps) to a

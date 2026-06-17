@@ -48,7 +48,7 @@ from .const import (
 from .statistics import fetch_statistics
 from .units import to_wh_per_slot, detect_unit
 
-from shadylib import compute_effective_strings
+from shadylib import compute_effective_strings, filter_gap_successors
 
 
 class _DiscardOnMigrationStore(Store):
@@ -185,6 +185,7 @@ class EffectiveHistoryStore:
         pv_sensors: list[str],
         system_sensor_cfg: dict[str, str | None],
         history_days: int,
+        filter_recorder_gaps: bool = True,
     ) -> None:
         """Compute and cache missing effective history slots.
 
@@ -256,13 +257,20 @@ class EffectiveHistoryStore:
             except Exception:  # noqa: BLE001
                 unit_cache[eid] = "W"
 
-        # Build slot maps per sensor
+        # Build slot maps per sensor.
+        # Optionally discard the first sample after any downtime gap wider
+        # than one slot. The HA recorder may have accumulated all missing
+        # values into that sample, producing an inflated effective-history
+        # entry (CONF_FILTER_RECORDER_GAPS).
+        def _clean(rows: list[dict]) -> list[dict]:
+            return filter_gap_successors(rows) if filter_recorder_gaps else rows
+
         pv_slot_maps: dict[str, dict[str, float]] = {
-            eid: _rows_to_slot_map(stats.get(eid, []), unit_cache.get(eid, "W"))
+            eid: _rows_to_slot_map(_clean(stats.get(eid, [])), unit_cache.get(eid, "W"))
             for eid in pv_sensors
         }
         sys_slot_maps: dict[str, dict[str, float]] = {
-            eid: _rows_to_slot_map(stats.get(eid, []), unit_cache.get(eid, "W"))
+            eid: _rows_to_slot_map(_clean(stats.get(eid, [])), unit_cache.get(eid, "W"))
             for eid in system_entity_ids
         }
 

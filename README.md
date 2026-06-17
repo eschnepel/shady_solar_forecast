@@ -65,6 +65,10 @@ All predictions are clamped to `max(0, predicted)`.
 Quadratic uses no free intercept (physically correct: fc=0 → pv=0) and falls back to linear if fewer than 3 training points are available.
 If all string models fail, the raw forecast is passed through unchanged.
 
+### Recorder Gap Filtering
+
+When **Filter gap-successor samples** is enabled (default), Shady discards the first recorder sample that immediately follows a downtime gap longer than one 5-minute slot interval. After a system downtime the HA recorder may accumulate the energy of all missing slots into that single successor sample, which would otherwise inflate both model training data and the effective-history backfill. Disabling this option restores the previous behaviour and may be useful for debugging or in setups where the recorder is known to be gap-free.
+
 ### Effective Sensor Mode
 
 When **Use effective sensors** is enabled, Shady computes loss-corrected PV string values before training the correction models.
@@ -149,6 +153,7 @@ The last successful forecast is saved to HA storage and restored on restart so s
 | **Battery charge sensor** | – | Power flowing into the battery (charging). Positive values only. |
 | **Battery discharge sensor** | – | Power flowing out of the battery (discharging). Positive values only. |
 | **Use effective sensors** | – | Train models on loss-corrected PV values (requires at least one system I/O sensor; default: off) |
+| **Filter gap-successor samples** | – | Discard the first recorder sample after a downtime gap longer than one 5-minute slot. Prevents accumulated recorder values from skewing model training and effective-history backfill. Disable only if you observe unexpected data loss after enabling. (default: on) |
 
 All options can be changed later via **Settings → Devices & Services → Shady → Configure**.
 
