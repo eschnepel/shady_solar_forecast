@@ -499,3 +499,73 @@ class TestApplyCorrectionsEffectiveSensorFetch:
             datetime(2025, 6, 14, 8, 5, tzinfo=UTC),
         }
         assert set(pv1_starts) == expected
+
+
+class TestCoordinatorDataSerialization:
+    """CoordinatorData.to_dict() must produce JSON-serialisable output.
+
+    string_bucket_models uses tuple keys (hour, minute) and tuple values which
+    are not valid JSON.  bucket_models_timestamp is transient runtime state.
+    Both must be excluded from the persisted dict.
+    """
+
+    def _make_data_with_models(self):
+        from shady.coordinator import CoordinatorData
+
+        data = CoordinatorData()
+        data.string_bucket_models = {
+            "sensor.pv1": {
+                (8, 0): (0.912,),
+                (12, 0): (0.743, 12.5),
+                (12, 5): (0.031, 0.761, 0.0),
+            }
+        }
+        data.bucket_models_timestamp = "2025-06-15T00:00:00+00:00"
+        return data
+
+    def test_to_dict_excludes_string_bucket_models(self):
+        data = self._make_data_with_models()
+        d = data.to_dict()
+        assert (
+            "string_bucket_models" not in d
+        ), "string_bucket_models must not be persisted (tuple keys are not JSON-serialisable)"
+
+    def test_to_dict_excludes_bucket_models_timestamp(self):
+        data = self._make_data_with_models()
+        d = data.to_dict()
+        assert (
+            "bucket_models_timestamp" not in d
+        ), "bucket_models_timestamp is transient and must not be persisted"
+
+    def test_to_dict_is_json_serialisable(self):
+        import json
+
+        data = self._make_data_with_models()
+        d = data.to_dict()
+        # Must not raise
+        serialised = json.dumps(d)
+        assert len(serialised) > 0
+
+    def test_from_dict_restores_empty_bucket_models(self):
+        """Round-trip: from_dict always starts with empty bucket models."""
+        from shady.coordinator import CoordinatorData
+
+        data = self._make_data_with_models()
+        restored = CoordinatorData.from_dict(data.to_dict())
+        assert restored.string_bucket_models == {}
+        assert restored.bucket_models_timestamp is None
+
+    def test_to_dict_preserves_forecast_fields(self):
+        """Excluding bucket models must not drop other CoordinatorData fields."""
+        from shady.coordinator import CoordinatorData
+
+        data = CoordinatorData(
+            raw_forecast={"2025-06-15T10:00:00+00:00": 100.0},
+            today_total=500.0,
+            fc_unit="Wh",
+        )
+        data.string_bucket_models = {"sensor.pv1": {(8, 0): (0.9,)}}
+        d = data.to_dict()
+        assert d["raw_forecast"] == {"2025-06-15T10:00:00+00:00": 100.0}
+        assert d["today_total"] == 500.0
+        assert d["fc_unit"] == "Wh"

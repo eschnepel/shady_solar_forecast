@@ -130,7 +130,19 @@ class CoordinatorData:
     bucket_models_timestamp: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        """Serialise to a JSON-compatible dict for the HA store.
+
+        ``string_bucket_models`` and ``bucket_models_timestamp`` are intentionally
+        excluded: they are transient runtime state kept in the coordinator's own
+        cache (``_cached_bucket_models`` / ``_bucket_models_timestamp``) and are
+        re-fitted on the next refresh.  Their keys are ``tuple[int, int]`` which
+        is not JSON-serialisable, and persisting them would gain nothing because
+        they are always regenerated at day-start anyway.
+        """
+        d = asdict(self)
+        d.pop("string_bucket_models", None)
+        d.pop("bucket_models_timestamp", None)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "CoordinatorData":
