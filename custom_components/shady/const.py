@@ -43,7 +43,7 @@ SYSTEM_SENSOR_KEYS: list[str] = [
 
 # Filter gap-successor samples from recorder data
 CONF_FILTER_RECORDER_GAPS = "filter_recorder_gaps"
-DEFAULT_FILTER_RECORDER_GAPS = True
+DEFAULT_FILTER_RECORDER_GAPS = False
 
 # Use effective (loss-corrected) PV strings instead of raw sensors in the model
 CONF_USE_EFFECTIVE_SENSORS = "use_effective_sensors"
