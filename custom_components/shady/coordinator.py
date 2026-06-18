@@ -487,8 +487,15 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
         """Fetch statistics, normalise to Wh/slot, delegate to shadylib.
 
-        When *use_effective* is True, the PV sensor history is replaced by the
-        cached effective string history (loss-adjusted) before model building.
+        When *use_effective* is True, the effective-history cache is consulted
+        first for each PV string.  Only strings without a cache entry fall back
+        to raw recorder data and are included in the ``fetch_statistics`` call.
+        The fc_sensor is always fetched via recorder.
+
+        This means ``fetch_statistics`` is called with the minimal set of IDs:
+        - always: fc_sensor
+        - only when use_effective=False, or as fallback for uncached strings:
+          the relevant pv_sensor IDs
 
         Bucket models are only re-fitted when the internal cache is empty
         (i.e. after a day-start event or an explicit rebuild).  On subsequent
@@ -504,8 +511,36 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
         start = dt_util.now() - timedelta(days=history_days)
 
+        # --- Determine which PV sensor IDs actually need recorder statistics ---
+        # When use_effective=True, strings with a warm effective-history cache
+        # do not need a recorder fetch.  Strings without cache (e.g. first run
+        # or after a string was added) fall back to recorder and are included.
+        if use_effective:
+            pv_sensors_rows: dict[str, list[dict]] = {}
+            recorder_pv_ids: list[str] = []
+            for s in pv_sensors:
+                eff_slots = self._effective_store.get_slots(s)
+                if eff_slots:
+                    # Convert slot dict → [{start, mean}] rows (already Wh/slot).
+                    # parse_dt() converts the ISO-string keys to datetime objects
+                    # so that rows are type-compatible with recorder-sourced rows
+                    # (both paths use datetime for the "start" field).
+                    pv_sensors_rows[s] = [
+                        {"start": parse_dt(k), "mean": v} for k, v in sorted(eff_slots.items())
+                    ]
+                else:
+                    _LOGGER.debug(
+                        "No effective history for %s – will fetch recorder data as fallback", s
+                    )
+                    recorder_pv_ids.append(s)
+        else:
+            pv_sensors_rows = {}  # filled after fetch below
+            recorder_pv_ids = list(pv_sensors)
+
+        ids_to_fetch: list[str] = [fc_sensor] + recorder_pv_ids
+
         try:
-            stats = await fetch_statistics(self.hass, [fc_sensor] + pv_sensors, start)
+            stats = await fetch_statistics(self.hass, ids_to_fetch, start)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Cannot fetch statistics: %s – using raw forecast", err)
             return dict(raw), {}
@@ -521,23 +556,9 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         }
         fc_rows = to_wh_per_slot(raw_stats.get(fc_sensor, []), fc_unit)
 
-        if use_effective:
-            # Replace PV recorder history with effective (loss-adjusted) values
-            pv_sensors_rows: dict[str, list[dict]] = {}
-            for s in pv_sensors:
-                eff_slots = self._effective_store.get_slots(s)
-                if eff_slots:
-                    # Convert slot dict back to [{start, mean}] rows (already in Wh/slot)
-                    eff_rows = [{"start": k, "mean": v} for k, v in sorted(eff_slots.items())]
-                    pv_sensors_rows[s] = eff_rows
-                else:
-                    # Fallback to raw recorder data if no effective cache available
-                    _LOGGER.debug("No effective history for %s – falling back to raw PV data", s)
-                    pv_sensors_rows[s] = to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W"))
-        else:
-            pv_sensors_rows = {
-                s: to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W")) for s in pv_sensors
-            }
+        # Fill in recorder-fetched rows for strings that needed it
+        for s in recorder_pv_ids:
+            pv_sensors_rows[s] = to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W"))
 
         # Normalise the EM forecast (arbitrary-interval timestamps) to a
         # complete 5-minute Wh/slot raster before passing to the model.

@@ -276,3 +276,226 @@ class TestAsyncRebuildHistory:
 
         # Only one backfill should have started (the second call is skipped)
         assert len(started) == 1
+
+
+class TestApplyCorrectionsEffectiveSensorFetch:
+    """fetch_statistics must be called with the minimal set of IDs.
+
+    When use_effective=True and the effective-history cache is warm for a
+    string, that string's entity_id must NOT appear in the fetch_statistics
+    call.  Only strings without a cache entry (fallback path) may be included.
+    When use_effective=False all pv_sensor IDs are always included.
+    """
+
+    def _make_coordinator(self, eff_slots: dict | None = None):
+        """Build a minimal coordinator with a pre-configured effective store."""
+        from shady.coordinator import ShadyCoordinator, CoordinatorData
+
+        hass = MagicMock()
+        entry = MagicMock()
+        entry.entry_id = "test"
+        entry.options = {
+            "fc_sensor": "sensor.fc",
+            "pv_sensors": ["sensor.pv1", "sensor.pv2"],
+            "history_days": 7,
+            "algorithm": "factor",
+            "filter_recorder_gaps": False,
+            "use_effective_sensors": True,
+        }
+        entry.data = {}
+
+        coord = ShadyCoordinator.__new__(ShadyCoordinator)
+        coord.hass = hass
+        coord._entry = entry
+        coord._unit_cache = {}
+        coord._rebuild_lock = __import__("asyncio").Lock()
+        coord._cached_bucket_models = {}
+        coord._bucket_models_timestamp = None
+        coord._unsub_midnight = None
+        coord._unsub_listener = None
+
+        # effective store: pv1 has slots, pv2 has none (default)
+        eff_store = MagicMock()
+
+        def _get_slots(eid):
+            if eid == "sensor.pv1":
+                return {"2025-06-14T08:00:00+00:00": 25.0}
+            return {}
+
+        eff_store.get_slots = MagicMock(side_effect=_get_slots)
+        coord._effective_store = eff_store
+
+        data = CoordinatorData()
+        coord.data = data
+        return coord
+
+    @pytest.mark.asyncio
+    async def test_use_effective_cached_string_not_fetched(self):
+        """sensor.pv1 has effective cache → must NOT be in fetch_statistics call."""
+        coord = self._make_coordinator()
+
+        fetched_ids: list = []
+
+        async def _fake_fetch(hass, ids, start):
+            fetched_ids.extend(ids)
+            return {eid: [] for eid in ids}
+
+        with (
+            patch("shady.coordinator.fetch_statistics", side_effect=_fake_fetch),
+            patch(
+                "shady.coordinator._shadylib_apply_corrections",
+                return_value=({}, {}, {}),
+            ),
+            patch("shady.coordinator.dt_util") as mock_dt,
+            patch("shady.coordinator.normalise_em_to_5min", return_value={}),
+            patch("shady.coordinator.to_wh_per_slot", return_value=[]),
+        ):
+            mock_dt.now.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+            mock_dt.utcnow.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+
+            await coord._apply_corrections(
+                {},
+                ["sensor.pv1", "sensor.pv2"],
+                "Wh",
+                {"sensor.pv1": "Wh", "sensor.pv2": "Wh"},
+                use_effective=True,
+            )
+
+        # fc_sensor always fetched; pv1 has cache so NOT fetched; pv2 has no cache so IS fetched
+        assert "sensor.fc" in fetched_ids
+        assert "sensor.pv1" not in fetched_ids, "cached effective string must not be re-fetched"
+        assert "sensor.pv2" in fetched_ids, "uncached string must be fetched as fallback"
+
+    @pytest.mark.asyncio
+    async def test_use_effective_all_cached_only_fc_fetched(self):
+        """When all strings have effective cache, only fc_sensor is fetched."""
+        coord = self._make_coordinator()
+        # Override so pv2 also has slots
+        coord._effective_store.get_slots = MagicMock(
+            return_value={"2025-06-14T08:00:00+00:00": 20.0}
+        )
+
+        fetched_ids: list = []
+
+        async def _fake_fetch(hass, ids, start):
+            fetched_ids.extend(ids)
+            return {eid: [] for eid in ids}
+
+        with (
+            patch("shady.coordinator.fetch_statistics", side_effect=_fake_fetch),
+            patch(
+                "shady.coordinator._shadylib_apply_corrections",
+                return_value=({}, {}, {}),
+            ),
+            patch("shady.coordinator.dt_util") as mock_dt,
+            patch("shady.coordinator.normalise_em_to_5min", return_value={}),
+        ):
+            mock_dt.now.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+            mock_dt.utcnow.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+
+            await coord._apply_corrections(
+                {},
+                ["sensor.pv1", "sensor.pv2"],
+                "Wh",
+                {"sensor.pv1": "Wh", "sensor.pv2": "Wh"},
+                use_effective=True,
+            )
+
+        assert fetched_ids == ["sensor.fc"], (
+            f"Only fc_sensor should be fetched when all strings are cached, got: {fetched_ids}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_use_effective_false_all_pv_sensors_fetched(self):
+        """When use_effective=False, all pv_sensor IDs must always be fetched."""
+        coord = self._make_coordinator()
+        # Even if effective slots exist, use_effective=False → always fetch recorder
+        coord._effective_store.get_slots = MagicMock(
+            return_value={"2025-06-14T08:00:00+00:00": 25.0}
+        )
+
+        fetched_ids: list = []
+
+        async def _fake_fetch(hass, ids, start):
+            fetched_ids.extend(ids)
+            return {eid: [] for eid in ids}
+
+        with (
+            patch("shady.coordinator.fetch_statistics", side_effect=_fake_fetch),
+            patch(
+                "shady.coordinator._shadylib_apply_corrections",
+                return_value=({}, {}, {}),
+            ),
+            patch("shady.coordinator.dt_util") as mock_dt,
+            patch("shady.coordinator.normalise_em_to_5min", return_value={}),
+            patch("shady.coordinator.to_wh_per_slot", return_value=[]),
+        ):
+            mock_dt.now.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+            mock_dt.utcnow.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+
+            await coord._apply_corrections(
+                {},
+                ["sensor.pv1", "sensor.pv2"],
+                "Wh",
+                {"sensor.pv1": "Wh", "sensor.pv2": "Wh"},
+                use_effective=False,
+            )
+
+        assert "sensor.fc" in fetched_ids
+        assert "sensor.pv1" in fetched_ids
+        assert "sensor.pv2" in fetched_ids
+
+    @pytest.mark.asyncio
+    async def test_effective_rows_used_directly_without_fetch(self):
+        """Rows for cached effective strings must come from store, not from stats."""
+        coord = self._make_coordinator()
+        # pv1 has effective slots, pv2 does not
+        eff_slots_pv1 = {
+            "2025-06-14T08:00:00+00:00": 25.0,
+            "2025-06-14T08:05:00+00:00": 30.0,
+        }
+        coord._effective_store.get_slots = MagicMock(
+            side_effect=lambda eid: eff_slots_pv1 if eid == "sensor.pv1" else {}
+        )
+
+        captured_pv_rows: dict = {}
+
+        def _fake_apply(raw_norm, fc_rows_m, pv_rows_m, algorithm):
+            captured_pv_rows.update(pv_rows_m)
+            return {}, {}, {}
+
+        with (
+            patch(
+                "shady.coordinator.fetch_statistics",
+                new=AsyncMock(return_value={"sensor.fc": [], "sensor.pv2": []}),
+            ),
+            patch("shady.coordinator._shadylib_apply_corrections", side_effect=_fake_apply),
+            patch("shady.coordinator.dt_util") as mock_dt,
+            patch("shady.coordinator.normalise_em_to_5min", return_value={}),
+            patch("shady.coordinator.to_wh_per_slot", return_value=[]),
+        ):
+            mock_dt.now.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+            mock_dt.utcnow.return_value = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+
+            await coord._apply_corrections(
+                {},
+                ["sensor.pv1", "sensor.pv2"],
+                "Wh",
+                {"sensor.pv1": "Wh", "sensor.pv2": "Wh"},
+                use_effective=True,
+            )
+
+        assert "sensor.pv1" in captured_pv_rows
+        pv1_starts = [r["start"] for r in captured_pv_rows["sensor.pv1"]]
+        # The rows must come from the effective store; start values are datetime objects
+        # (parse_dt converts the ISO-string cache keys to datetime for type consistency).
+        assert len(pv1_starts) == 2, f"Expected 2 effective rows, got: {pv1_starts}"
+        assert all(isinstance(s, datetime) for s in pv1_starts), (
+            f"start values must be datetime objects, got: {pv1_starts}"
+        )
+        # Verify the actual timestamps match the effective store slots
+        expected = {
+            datetime(2025, 6, 14, 8, 0, tzinfo=UTC),
+            datetime(2025, 6, 14, 8, 5, tzinfo=UTC),
+        }
+        assert set(pv1_starts) == expected
