@@ -265,6 +265,64 @@ template:
 
 ---
 
+## Rebuild History Button & Bucket-Model Sensors
+
+### Rebuild History button
+
+The **Rebuild History** button (`button.shady_rebuild_history`) is a diagnostic entity that performs a full rebuild of the correction pipeline:
+
+1. Clears the effective-history cache completely.
+2. Re-fetches and recomputes effective PV history for the full configured `history_days` window.
+3. Invalidates the bucket models for all PV strings.
+4. Triggers an immediate forecast refresh which re-fits the models.
+
+**When to use it:**
+
+- After changing the correction **algorithm** (factor / linear / quadratic).
+- After adding or removing a **PV string sensor**.
+- After a long HA downtime where recorder data is missing.
+- Whenever the effective-history cache appears stale or corrupt.
+
+The button is guarded against concurrent presses: a second press while a rebuild is already running is silently ignored.
+
+### Bucket-Model diagnostic sensors
+
+For each configured PV string, Shady creates a diagnostic sensor:
+
+| Entity | Value |
+|---|---|
+| `sensor.shady_solar_string_<slug>_bucket_models` | ISO-8601 UTC timestamp of last model fit, or `unavailable` if none |
+
+The sensor's **attributes** expose the fitted coefficients for every time bucket:
+
+```json
+{
+  "08:00": [0.912],
+  "12:00": [0.743, 12.5],
+  "12:05": [0.031, 0.761, 0.0]
+}
+```
+
+Key format is `"HH:MM"` (zero-padded, snapped to 5-minute boundaries).  The tuple length depends on the algorithm:
+
+| Algorithm | Tuple | Meaning |
+|---|---|---|
+| `factor` | `[factor]` | weighted mean ratio |
+| `linear` | `[slope, intercept]` | WLS linear coefficients |
+| `quadratic` | `[a, b, 0.0]` | WLS quadratic coefficients |
+
+Use these attributes to validate that the model has been fitted and the coefficients look plausible (e.g. factors near 1.0 at midday, lower for shaded morning/evening buckets).
+
+### Daily recalculation schedule & yesterday cutoff
+
+Bucket models are **re-fitted once per day at 00:00:00 local time**.  Between recalculations, intra-day refreshes reuse the models computed at day start.
+
+Training data is always restricted to slots **strictly before midnight of the current day** (i.e. `start < today_start`).  This yesterday cutoff prevents distortions that would otherwise occur as corrected forecast data for this morning's slots arrives alongside actual PV readings, shifting the bucket coefficients mid-day.
+
+Backfill of the effective-history cache is *not* subject to this cutoff; it continues to cover all slots up to the present time.
+
+---
+
 ## Diagnostics & Troubleshooting
 
 Enable **DEBUG** logging for detailed model output:
@@ -284,6 +342,8 @@ logger:
 | Quadratic produces implausible values | Insufficient 5-min history; switch to Linear |
 | `forecast_tomorrow` is empty | Provider only delivers today's forecast |
 | Effective sensors show 0 | System I/O sensors not configured or all loss absorbed |
+| Bucket-model sensor shows `unavailable` | No model fitted yet; wait for the next 00:00 recalculation or press **Rebuild History** |
+| Model coefficients look implausible | Press **Rebuild History** to force a fresh fit; check that `history_days` is large enough |
 
 ---
 

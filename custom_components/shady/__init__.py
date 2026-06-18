@@ -97,7 +97,7 @@ from .const import CONF_PV_SENSORS, DOMAIN, LEGACY_PV_SENSOR_KEYS  # noqa: E402
 from .coordinator import ShadyCoordinator  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BUTTON]
 
 
 def _migrate_legacy_pv_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:

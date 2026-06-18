@@ -180,6 +180,20 @@ class EffectiveHistoryStore:
         """Return cached effective slots for a single PV string."""
         return dict(self._cache.get(pv_entity_id, {}))
 
+    def invalidate(self) -> None:
+        """Completely clear the effective-history cache in memory.
+
+        Resets all cached slots and the ``cached_until`` watermark so that the
+        next call to ``async_backfill_if_needed()`` treats every slot as missing
+        and performs a full rebuild from recorder statistics.
+
+        Note: the on-disk store is *not* immediately overwritten here; it will
+        be updated when ``async_save()`` is called after backfill completes.
+        """
+        _LOGGER.debug("EffectiveHistoryStore: cache invalidated (full rebuild will follow)")
+        self._cache = {}
+        self._cached_until = None
+
     async def async_backfill_if_needed(
         self,
         pv_sensors: list[str],
