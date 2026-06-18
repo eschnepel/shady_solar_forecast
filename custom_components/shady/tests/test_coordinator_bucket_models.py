@@ -401,9 +401,9 @@ class TestApplyCorrectionsEffectiveSensorFetch:
                 use_effective=True,
             )
 
-        assert fetched_ids == ["sensor.fc"], (
-            f"Only fc_sensor should be fetched when all strings are cached, got: {fetched_ids}"
-        )
+        assert fetched_ids == [
+            "sensor.fc"
+        ], f"Only fc_sensor should be fetched when all strings are cached, got: {fetched_ids}"
 
     @pytest.mark.asyncio
     async def test_use_effective_false_all_pv_sensors_fetched(self):
@@ -490,9 +490,9 @@ class TestApplyCorrectionsEffectiveSensorFetch:
         # The rows must come from the effective store; start values are datetime objects
         # (parse_dt converts the ISO-string cache keys to datetime for type consistency).
         assert len(pv1_starts) == 2, f"Expected 2 effective rows, got: {pv1_starts}"
-        assert all(isinstance(s, datetime) for s in pv1_starts), (
-            f"start values must be datetime objects, got: {pv1_starts}"
-        )
+        assert all(
+            isinstance(s, datetime) for s in pv1_starts
+        ), f"start values must be datetime objects, got: {pv1_starts}"
         # Verify the actual timestamps match the effective store slots
         expected = {
             datetime(2025, 6, 14, 8, 0, tzinfo=UTC),
