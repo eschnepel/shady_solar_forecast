@@ -67,5 +67,17 @@
         "quadratic": "Quadratic regression"
       }
     }
+  },
+  "entity": {
+    "button": {
+      "rebuild_history": {
+        "name": "Rebuild History"
+      }
+    },
+    "sensor": {
+      "bucket_models": {
+        "name": "Bucket Models"
+      }
+    }
   }
 }

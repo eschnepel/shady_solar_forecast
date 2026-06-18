@@ -294,3 +294,116 @@ class TestPvUsableFormula:
         )
         assert val is not None
         assert val == 0.0
+
+
+# ---------------------------------------------------------------------------
+# EffectiveHistoryStore.invalidate – used by async_rebuild_history
+# ---------------------------------------------------------------------------
+
+
+class TestEffectiveHistoryStoreInvalidate:
+    def _make_store(self, hass):
+        from shady.effective_history import EffectiveHistoryStore
+
+        return EffectiveHistoryStore(hass)
+
+    def test_invalidate_clears_cache_and_cached_until(self):
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock, patch
+
+        hass = MagicMock()
+        store_mock = MagicMock()
+        store_mock.async_load = AsyncMock(return_value=None)
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
+            s = self._make_store(hass)
+            # Pre-populate with some data
+            s._cache = {"sensor.pv1": {"2025-06-01T08:00:00+00:00": 25.0}}
+            s._cached_until = datetime(2025, 6, 14, 23, 55, tzinfo=timezone.utc)
+
+            s.invalidate()
+
+            assert s._cache == {}
+            assert s._cached_until is None
+
+    def test_invalidate_idempotent_on_empty_cache(self):
+        from unittest.mock import MagicMock, patch
+
+        hass = MagicMock()
+        store_mock = MagicMock()
+        store_mock.async_load = AsyncMock(return_value=None)
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
+            s = self._make_store(hass)
+            # Already empty
+            s._cache = {}
+            s._cached_until = None
+
+            s.invalidate()  # Must not raise
+
+            assert s._cache == {}
+            assert s._cached_until is None
+
+    def test_get_slots_returns_empty_after_invalidate(self):
+        from unittest.mock import MagicMock, patch
+
+        hass = MagicMock()
+        store_mock = MagicMock()
+        store_mock.async_load = AsyncMock(return_value=None)
+        with patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock):
+            s = self._make_store(hass)
+            s._cache = {"sensor.pv1": {"2025-06-01T08:00:00+00:00": 25.0}}
+            s._cached_until = None
+
+            s.invalidate()
+
+            assert s.get_slots("sensor.pv1") == {}
+
+    @pytest.mark.asyncio
+    async def test_backfill_after_invalidate_rebuilds_from_scratch(self):
+        """After invalidate(), the next backfill must treat all slots as missing."""
+        from datetime import datetime, timezone, timedelta
+        from unittest.mock import MagicMock, AsyncMock, patch
+
+        UTC = timezone.utc
+        now = datetime(2025, 6, 15, 10, 0, tzinfo=UTC)
+        day_start = datetime(2025, 6, 14, 8, 0, tzinfo=UTC)
+
+        hass = MagicMock()
+        store_mock = MagicMock()
+        store_mock.async_load = AsyncMock(return_value=None)
+        store_mock.async_save = AsyncMock()
+
+        rows = [{"start": day_start + timedelta(minutes=5 * i), "mean": 50.0} for i in range(10)]
+
+        with (
+            patch("shady.effective_history._DiscardOnMigrationStore", return_value=store_mock),
+            patch(
+                "shady.effective_history.fetch_statistics",
+                new=AsyncMock(return_value={"sensor.pv1": rows}),
+            ),
+            patch("shady.effective_history.dt_util") as mock_dt,
+            patch(
+                "shady.effective_history.detect_unit",
+                new=AsyncMock(return_value=("W", "measurement")),
+            ),
+        ):
+            mock_dt.now.return_value = now
+            mock_dt.UTC = UTC
+
+            from shady.effective_history import EffectiveHistoryStore
+
+            s = EffectiveHistoryStore(hass)
+            s._cache = {"sensor.pv1": {"2025-06-01T08:00:00+00:00": 25.0}}
+            s._cached_until = datetime(2025, 6, 13, 23, 55, tzinfo=UTC)
+
+            s.invalidate()
+            assert s._cache == {}
+            assert s._cached_until is None
+
+            # After invalidate, backfill should run and populate cache
+            await s.async_backfill_if_needed(
+                ["sensor.pv1"],
+                {},
+                history_days=2,
+            )
+            # Cache must now be populated
+            assert "sensor.pv1" in s._cache or store_mock.async_save.called

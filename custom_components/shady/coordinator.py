@@ -10,19 +10,22 @@ Data pipeline:
 6. Compute today_total + remaining directly from 5-min today slots
 
 CoordinatorData fields:
-  raw_forecast      : {ISO-ts: Wh}
-  forecast_today    : {ISO-ts: Wh}  – native provider resolution (5-min for hourly providers)
-  forecast_tomorrow : {ISO-ts: Wh}  – aggregated to full hours
-  string_forecasts  : {entity_id: {ISO-ts: Wh}}
-  today_total       : float (Wh)
-  remaining         : float (Wh)  – sum of slots whose start >= now (5-min precision)
+  raw_forecast          : {ISO-ts: Wh}
+  forecast_today        : {ISO-ts: Wh}  – native provider resolution (5-min for hourly providers)
+  forecast_tomorrow     : {ISO-ts: Wh}  – aggregated to full hours
+  string_forecasts      : {entity_id: {ISO-ts: Wh}}
+  today_total           : float (Wh)
+  remaining             : float (Wh)  – sum of slots whose start >= now (5-min precision)
+  string_bucket_models  : {entity_id: BucketModels}  – fitted bucket models per string
+  bucket_models_timestamp : str | None  – ISO-8601 UTC of last bucket model fit
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import asdict, dataclass, field
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import Any
 
 from homeassistant.components.energy import (
@@ -30,6 +33,7 @@ from homeassistant.components.energy import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -62,6 +66,7 @@ from .units import (
     wh_to_unit,
 )
 from shadylib import apply_corrections as _shadylib_apply_corrections
+from shadylib import BucketModels
 from shadylib import compute_effective_strings
 from shadylib import normalise_em_to_5min, filter_gap_successors
 from shadylib.math_utils import aggregate_to_hours
@@ -119,6 +124,10 @@ class CoordinatorData:
     fc_state_class: str = "total_increasing"
     # Current effective (loss-adjusted) power per PV string {entity_id: value}
     effective_string_values: dict[str, float] = field(default_factory=dict)
+    # Bucket models fitted at last day-start recalculation
+    string_bucket_models: dict[str, BucketModels] = field(default_factory=dict)
+    # ISO-8601 UTC timestamp of last bucket model fit; None until first fit
+    bucket_models_timestamp: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -135,6 +144,9 @@ class CoordinatorData:
             fc_unit=d.get("fc_unit", "Wh"),
             fc_state_class=d.get("fc_state_class", "total_increasing"),
             effective_string_values=d.get("effective_string_values", {}),
+            # Bucket models are not persisted across restarts; refit on next refresh.
+            string_bucket_models={},
+            bucket_models_timestamp=None,
         )
 
 
@@ -154,6 +166,13 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         self._effective_store = EffectiveHistoryStore(hass)
         # Cache unit/state_class per entity_id – sensor units don't change at runtime
         self._unit_cache: dict[str, tuple[str, str]] = {}
+        # Lock to prevent concurrent rebuild-history operations
+        self._rebuild_lock = asyncio.Lock()
+        # Cached bucket models per string (reset at day-start or on rebuild)
+        self._cached_bucket_models: dict[str, BucketModels] = {}
+        self._bucket_models_timestamp: str | None = None
+        # Unsubscribe for midnight recalculation listener
+        self._unsub_midnight: Any = None
 
     def _cfg(self, key: str, default: Any = None) -> Any:
         d = self._entry.options or self._entry.data
@@ -197,6 +216,15 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         if pv_sensors:
             self.hass.async_create_task(self._async_backfill_effective())
 
+        # Schedule daily bucket-model recalculation at 00:00:00 local time
+        self._unsub_midnight = async_track_time_change(
+            self.hass,
+            self._on_day_start,
+            hour=0,
+            minute=0,
+            second=0,
+        )
+
         await self.async_refresh()
 
     async def _on_energy_manager_update(self) -> None:
@@ -206,6 +234,45 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         if self._unsub_listener:
             self._unsub_listener()
             self._unsub_listener = None
+        if self._unsub_midnight:
+            self._unsub_midnight()
+            self._unsub_midnight = None
+
+    async def _on_day_start(self, now: Any) -> None:
+        """Called at 00:00:00 local time – invalidate bucket models and refresh."""
+        _LOGGER.debug("Day-start event: invalidating bucket models for recalculation")
+        self._cached_bucket_models = {}
+        self._bucket_models_timestamp = None
+        await self.async_refresh()
+
+    async def async_rebuild_history(self) -> None:
+        """Rebuild effective-history cache and refit bucket models.
+
+        Steps:
+          1. Invalidate effective-history cache (clear all slots, reset cached_until).
+          2. Re-run full backfill for the history_days window.
+          3. Invalidate stored BucketModels for all strings.
+          4. Call async_refresh() which re-fits models and updates all sensors.
+
+        Guarded by an asyncio.Lock to prevent concurrent runs.
+        """
+        if self._rebuild_lock.locked():
+            _LOGGER.warning("async_rebuild_history: already running, skipping")
+            return
+        async with self._rebuild_lock:
+            _LOGGER.info("async_rebuild_history: starting full history rebuild")
+            # Step 1: Invalidate effective-history cache
+            self._effective_store.invalidate()
+            # Step 2: Re-run full backfill
+            pv_sensors = self._active_pv_sensors()
+            if pv_sensors:
+                await self._async_backfill_effective()
+            # Step 3: Invalidate bucket models
+            self._cached_bucket_models = {}
+            self._bucket_models_timestamp = None
+            # Step 4: Refresh coordinator data (refits models, updates sensors)
+            await self.async_refresh()
+            _LOGGER.info("async_rebuild_history: complete")
 
     async def _async_backfill_effective(self) -> None:
         """Run effective history backfill (called once on startup as a task)."""
@@ -403,6 +470,8 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             fc_unit=fc_unit,
             fc_state_class=fc_state_class,
             effective_string_values=effective_string_values,
+            string_bucket_models=self._cached_bucket_models,
+            bucket_models_timestamp=self._bucket_models_timestamp,
         )
 
     # ---- correction pipeline ----
@@ -418,16 +487,60 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     ) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
         """Fetch statistics, normalise to Wh/slot, delegate to shadylib.
 
-        When *use_effective* is True, the PV sensor history is replaced by the
-        cached effective string history (loss-adjusted) before model building.
+        When *use_effective* is True, the effective-history cache is consulted
+        first for each PV string.  Only strings without a cache entry fall back
+        to raw recorder data and are included in the ``fetch_statistics`` call.
+        The fc_sensor is always fetched via recorder.
+
+        This means ``fetch_statistics`` is called with the minimal set of IDs:
+        - always: fc_sensor
+        - only when use_effective=False, or as fallback for uncached strings:
+          the relevant pv_sensor IDs
+
+        Bucket models are only re-fitted when the internal cache is empty
+        (i.e. after a day-start event or an explicit rebuild).  On subsequent
+        intra-day refreshes the stored models are reused and the bucket-model
+        timestamp is left unchanged.
+
+        Training data cutoff: rows whose ``start`` is >= today_start (00:00:00
+        local time) are excluded from model fitting so that intra-day corrections
+        do not shift the coefficients mid-day.
         """
         algorithm = self._cfg(CONF_ALGORITHM, DEFAULT_ALGORITHM)
         fc_sensor = self._cfg(CONF_FC_SENSOR, DEFAULT_FC_SENSOR)
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
         start = dt_util.now() - timedelta(days=history_days)
 
+        # --- Determine which PV sensor IDs actually need recorder statistics ---
+        # When use_effective=True, strings with a warm effective-history cache
+        # do not need a recorder fetch.  Strings without cache (e.g. first run
+        # or after a string was added) fall back to recorder and are included.
+        if use_effective:
+            pv_sensors_rows: dict[str, list[dict]] = {}
+            recorder_pv_ids: list[str] = []
+            for s in pv_sensors:
+                eff_slots = self._effective_store.get_slots(s)
+                if eff_slots:
+                    # Convert slot dict → [{start, mean}] rows (already Wh/slot).
+                    # parse_dt() converts the ISO-string keys to datetime objects
+                    # so that rows are type-compatible with recorder-sourced rows
+                    # (both paths use datetime for the "start" field).
+                    pv_sensors_rows[s] = [
+                        {"start": parse_dt(k), "mean": v} for k, v in sorted(eff_slots.items())
+                    ]
+                else:
+                    _LOGGER.debug(
+                        "No effective history for %s – will fetch recorder data as fallback", s
+                    )
+                    recorder_pv_ids.append(s)
+        else:
+            pv_sensors_rows = {}  # filled after fetch below
+            recorder_pv_ids = list(pv_sensors)
+
+        ids_to_fetch: list[str] = [fc_sensor] + recorder_pv_ids
+
         try:
-            stats = await fetch_statistics(self.hass, [fc_sensor] + pv_sensors, start)
+            stats = await fetch_statistics(self.hass, ids_to_fetch, start)
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Cannot fetch statistics: %s – using raw forecast", err)
             return dict(raw), {}
@@ -443,27 +556,70 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         }
         fc_rows = to_wh_per_slot(raw_stats.get(fc_sensor, []), fc_unit)
 
-        if use_effective:
-            # Replace PV recorder history with effective (loss-adjusted) values
-            pv_sensors_rows: dict[str, list[dict]] = {}
-            for s in pv_sensors:
-                eff_slots = self._effective_store.get_slots(s)
-                if eff_slots:
-                    # Convert slot dict back to [{start, mean}] rows (already in Wh/slot)
-                    eff_rows = [{"start": k, "mean": v} for k, v in sorted(eff_slots.items())]
-                    pv_sensors_rows[s] = eff_rows
-                else:
-                    # Fallback to raw recorder data if no effective cache available
-                    _LOGGER.debug("No effective history for %s – falling back to raw PV data", s)
-                    pv_sensors_rows[s] = to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W"))
-        else:
-            pv_sensors_rows = {
-                s: to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W")) for s in pv_sensors
-            }
+        # Fill in recorder-fetched rows for strings that needed it
+        for s in recorder_pv_ids:
+            pv_sensors_rows[s] = to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W"))
 
         # Normalise the EM forecast (arbitrary-interval timestamps) to a
         # complete 5-minute Wh/slot raster before passing to the model.
         # This ensures prediction inputs match the training scale (Wh/slot).
         raw_normalised = normalise_em_to_5min(raw)
 
-        return _shadylib_apply_corrections(raw_normalised, fc_rows, pv_sensors_rows, algorithm)
+        # --- Training data cutoff: exclude today's slots from model fitting ---
+        # Rows from today (start >= 00:00 local) are not used for bucket model
+        # training to prevent intra-day distortions.  They are still used for
+        # the corrected forecast output (see below).
+        today_start_utc = (
+            dt_util.now()
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .astimezone(timezone.utc)
+        )
+        fc_rows_for_model = [r for r in fc_rows if r["start"] < today_start_utc]
+        pv_sensors_rows_for_model: dict[str, list[dict]] = {
+            eid: [r for r in rows if r["start"] < today_start_utc]
+            for eid, rows in pv_sensors_rows.items()
+        }
+
+        # --- Reuse cached bucket models when already fitted today ---
+        if self._cached_bucket_models:
+            _LOGGER.debug("Reusing cached bucket models (intra-day refresh)")
+            # Re-apply existing models using full (including today) fc_rows so that
+            # today's corrected forecast benefits from current raw data.
+            combined, string_forecasts, _new_models = _shadylib_apply_corrections(
+                raw_normalised,
+                fc_rows,
+                pv_sensors_rows,
+                algorithm,
+            )
+            # Overwrite string_bucket_models back onto coordinator – they were
+            # already cached; the new _new_models from this call are discarded
+            # since we passed full rows (not cut-off) so they may include today.
+            return combined, string_forecasts
+
+        # --- Fit new bucket models using pre-cutoff training rows ---
+        combined, string_forecasts, new_models = _shadylib_apply_corrections(
+            raw_normalised,
+            fc_rows_for_model,
+            pv_sensors_rows_for_model,
+            algorithm,
+        )
+
+        # Cache newly fitted models and record timestamp
+        self._cached_bucket_models = new_models
+        self._bucket_models_timestamp = (
+            dt_util.utcnow().replace(microsecond=0).isoformat()
+            if new_models
+            else self._bucket_models_timestamp
+        )
+
+        # Now generate corrected forecast using full rows (including today) so
+        # today's slots get the benefit of already-fitted models.
+        if new_models:
+            combined, string_forecasts, _ = _shadylib_apply_corrections(
+                raw_normalised,
+                fc_rows,
+                pv_sensors_rows,
+                algorithm,
+            )
+
+        return combined, string_forecasts

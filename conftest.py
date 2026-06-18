@@ -78,6 +78,8 @@ _stub(
     SensorDeviceClass=_SubscriptableMock(),
     SensorStateClass=_SubscriptableMock(),
 )
+_stub("homeassistant.components.button", ButtonEntity=_GenericBase)
+_stub("homeassistant.helpers.entity", EntityCategory=_SubscriptableMock())
 _stub("homeassistant.helpers")
 _stub(
     "homeassistant.helpers.update_coordinator",
@@ -88,6 +90,7 @@ _stub(
 _stub("homeassistant.helpers.storage", Store=MagicMock())
 _stub("homeassistant.helpers.device_registry", DeviceInfo=MagicMock())
 _stub("homeassistant.helpers.entity_platform", AddEntitiesCallback=_SubscriptableMock())
+_stub("homeassistant.helpers.event", async_track_time_change=MagicMock())
 _stub(
     "homeassistant.helpers.selector",
     EntitySelector=MagicMock(),

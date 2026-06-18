@@ -37,6 +37,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -45,6 +46,7 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_PV_SENSORS, DOMAIN
 from .coordinator import CoordinatorData, ShadyCoordinator
 from shadylib import normalise_to_5min_day as _normalise_to_5min_day
+from shadylib import BucketModels as _BucketModels
 from shadylib import parse_dt as _parse_dt
 
 
@@ -86,12 +88,13 @@ async def async_setup_entry(
         SolarForecastCurrentRawSensor(coordinator, entry),
     ]
 
-    # One forecast sensor + one effective sensor per configured PV string
+    # One forecast sensor + one effective sensor + one bucket-model sensor per PV string
     d = entry.options or entry.data
     for entity_id in d.get(CONF_PV_SENSORS, []):
         if entity_id:
             entities.append(SolarForecastStringCurrentSensor(coordinator, entry, entity_id))
             entities.append(EffectiveStringSensor(coordinator, entry, entity_id))
+            entities.append(BucketModelSensor(coordinator, entry, entity_id))
 
     async_add_entities(entities)
 
@@ -374,3 +377,63 @@ class EffectiveStringSensor(_Base):
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         return {"pv_sensor": self._pv_entity_id}
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic sensor: bucket models per PV string
+# ---------------------------------------------------------------------------
+
+
+class BucketModelSensor(CoordinatorEntity[ShadyCoordinator], SensorEntity):
+    """Diagnostic sensor exposing the fitted bucket models for a single PV string.
+
+    native_value: ISO-8601 UTC timestamp of the last successful bucket model fit,
+                  or None if no models have been computed yet.
+
+    extra_state_attributes: dict mapping "HH:MM" bucket keys to model coefficient
+                            tuples, e.g. {"08:00": [0.912], "12:00": [0.743, 12.5]}.
+    """
+
+    _attr_icon = "mdi:chart-scatter-plot"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = None
+    _attr_device_class = None
+    _attr_state_class = None
+
+    def __init__(
+        self,
+        coordinator: ShadyCoordinator,
+        entry: ConfigEntry,
+        pv_entity_id: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._pv_entity_id = pv_entity_id
+        slug = _entity_id_to_slug(pv_entity_id)
+        self._attr_unique_id = f"{entry.entry_id}_{slug}_bucket_models"
+        self._attr_name = f"Solar String {slug} Bucket Models"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+        )
+
+    @property
+    def _data(self) -> CoordinatorData:
+        return self.coordinator.data or CoordinatorData()
+
+    @property
+    def native_value(self) -> str | None:
+        """ISO-8601 UTC timestamp of last bucket model fit, or None."""
+        models = self._data.string_bucket_models.get(self._pv_entity_id)
+        if not models:
+            return None
+        return self._data.bucket_models_timestamp
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Bucket model coefficients keyed by 'HH:MM' bucket label."""
+        models: _BucketModels = self._data.string_bucket_models.get(self._pv_entity_id, {})
+        return {
+            f"{hour:02d}:{minute:02d}": list(coeff)
+            for (hour, minute), coeff in sorted(models.items())
+        }

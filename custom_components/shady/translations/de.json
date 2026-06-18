@@ -67,5 +67,17 @@
         "quadratic": "Quadratische Regression"
       }
     }
+  },
+  "entity": {
+    "button": {
+      "rebuild_history": {
+        "name": "Verlauf neu aufbauen"
+      }
+    },
+    "sensor": {
+      "bucket_models": {
+        "name": "Bucket-Modelle"
+      }
+    }
   }
 }
