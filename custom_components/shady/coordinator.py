@@ -102,6 +102,81 @@ class _DiscardOnMigrationStore(Store):
 _LOGGER = logging.getLogger(__name__)
 
 _FALLBACK_INTERVAL = timedelta(hours=1)
+
+# ---------------------------------------------
+# Temporary debug helpers – disabled by default
+# ---------------------------------------------
+_DEBUG_WINDOW_LOGGING_ENABLED = True
+_DEBUG_WINDOW_START = (10, 50)  # (hour, minute) inclusive
+_DEBUG_WINDOW_END = (12, 10)  # (hour, minute) inclusive
+
+
+def _rows_to_slots(rows: list[dict]) -> dict[str, float]:
+    return {
+        (r["start"].isoformat() if hasattr(r["start"], "isoformat") else str(r["start"])): r["mean"]  # noqa: E501
+        for r in rows
+    }
+
+
+def _debug_window_slots(
+    label: str,
+    slots: dict[str, float],
+    unit: str = "",
+) -> None:
+    """Log slot values inside the 10:50–12:10 debug window.
+
+    Filters *slots* to entries whose HH:MM portion falls within the debug
+    window (boundaries inclusive) and emits one WARNING line per slot so
+    they are visible even at the default log level in Home Assistant.
+
+    Args:
+        label:  Stage label printed before each value line.
+        slots:  {ISO-timestamp: value} dict (any resolution / timezone).
+        unit:   Optional unit string appended to each value (e.g. "Wh", "W").
+    """
+    if not _DEBUG_WINDOW_LOGGING_ENABLED:
+        return
+    if isinstance(slots, list):
+        slots = _rows_to_slots(slots)
+    h_start, m_start = _DEBUG_WINDOW_START
+    h_end, m_end = _DEBUG_WINDOW_END
+    start_total = h_start * 60 + m_start
+    end_total = h_end * 60 + m_end
+
+    found: list[tuple[str, float]] = []
+    for ts, val in slots.items():
+        # Extract HH:MM regardless of date or timezone suffix
+        # ISO strings look like "2025-06-02T10:55", "2025-06-02T10:55:00+02:00", …
+        try:
+            t_part = ts.split("T", 1)[1] if "T" in ts else ts
+            hh, mm = int(t_part[:2]), int(t_part[3:5])
+        except (IndexError, ValueError):
+            continue
+        total = hh * 60 + mm
+        if start_total <= total <= end_total:
+            found.append((ts, val))
+
+    for ts, val in sorted(found):
+        unit_str = f" {unit}" if unit else ""
+        _LOGGER.warning("[DEBUG %s] %s → %.4f%s", label, ts, val, unit_str)
+
+
+def _debug_window_rows(
+    label: str,
+    rows: list[dict],
+    unit: str = "",
+) -> None:
+    if not _DEBUG_WINDOW_LOGGING_ENABLED:
+        return
+    slots = _rows_to_slots(rows)
+    _debug_window_slots(label, slots, unit)
+
+
+def _debug_window_message(msg: object, *args: object):
+    if _DEBUG_WINDOW_LOGGING_ENABLED:
+        _LOGGER.warning(msg, *args)
+
+
 _STORAGE_KEY = f"{DOMAIN}.last_forecast"
 _STORAGE_VERSION = CACHE_VERSION
 
@@ -412,6 +487,7 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _build_data(self) -> CoordinatorData:
         raw = await fetch_raw_forecast(self.hass)
+        _debug_window_slots("1_raw_em_fetch", raw, "Wh(EM-interval)")
         pv_sensors = self._active_pv_sensors()
 
         # --- detect units (cached per entity_id) ---
@@ -440,6 +516,7 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             corrected, string_forecasts = await self._apply_corrections(
                 raw, pv_sensors, fc_unit, pv_units, use_effective=use_effective
             )
+        _debug_window_slots("4_corrected_wh_slot", corrected, "Wh/slot")
 
         now = dt_util.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -461,16 +538,22 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         }
         raw_out = wh_to_unit(raw, fc_unit)
 
+        _debug_window_slots("5a_raw_out_unit", raw_out, fc_unit)
+        _debug_window_slots("5b_forecast_today_out_unit", forecast_today_out, fc_unit)
+        for eid, sf_slots in string_forecasts_out.items():
+            _debug_window_slots(f"5c_string_out[{eid}]_unit", sf_slots, fc_unit)
+
         # today_total and remaining in output unit
         today_total = r(sum(forecast_today_out.values()))
         remaining = r(sum(v for ts, v in forecast_today_out.items() if parse_dt(ts) >= now))
 
-        for needle in ("T12:", "T11:"):
-            rv = next((wh for ts, wh in raw.items() if needle in ts), None)
-            cv = next((wh for ts, wh in corrected.items() if needle in ts), None)
-            if rv is not None and cv is not None:
-                _LOGGER.info("Midday slot: raw=%.2f Wh  corrected=%.2f Wh", rv, cv)
-                break
+        _debug_window_message(
+            "[DEBUG 6_totals] today_total=%.4f %s  remaining=%.4f %s",
+            today_total,
+            fc_unit,
+            remaining,
+            fc_unit,
+        )
 
         return CoordinatorData(
             raw_forecast=raw_out,
@@ -568,14 +651,26 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         }
         fc_rows = to_wh_per_slot(raw_stats.get(fc_sensor, []), fc_unit)
 
+        _debug_window_rows(
+            f"3a_fc_rows_wh_slot[unit={fc_unit}]",
+            fc_rows,
+            "Wh/slot",
+        )
+
         # Fill in recorder-fetched rows for strings that needed it
         for s in recorder_pv_ids:
             pv_sensors_rows[s] = to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W"))
+            _debug_window_rows(
+                f"3b_pv_rows_wh_slot[{s},unit={pv_units.get(s, 'W')}]",
+                pv_sensors_rows[s],
+                "Wh/slot",
+            )
 
         # Normalise the EM forecast (arbitrary-interval timestamps) to a
         # complete 5-minute Wh/slot raster before passing to the model.
         # This ensures prediction inputs match the training scale (Wh/slot).
         raw_normalised = normalise_em_to_5min(raw)
+        _debug_window_slots("2_raw_normalised_5min", raw_normalised, "Wh/slot")
 
         # --- Training data cutoff: exclude today's slots from model fitting ---
         # Rows from today (start >= 00:00 local) are not used for bucket model
