@@ -47,16 +47,12 @@ _ALGORITHM_SEL = selector.SelectSelector(
 _BOOL_SEL = selector.BooleanSelector()
 
 
-def _optional_entity(key: str, d: dict) -> vol.Optional:
-    """Return a vol.Optional for an entity selector.
+def _optional_entity(key: str) -> vol.Optional:
+    """Return a vol.Optional for an entity selector, always without a default.
 
-    A ``default`` is only attached when the key is already present in *d*.
-    Without a default the HA frontend renders the field empty instead of
-    re-injecting the previously stored entity ID — which is exactly what we
-    want so the user can clear the field permanently.
+    Never attaching a default ensures the HA frontend always renders the field
+    empty, so the user can clear a previously stored entity ID permanently.
     """
-    if key in d and d[key]:
-        return vol.Optional(key, default=d[key])
     return vol.Optional(key)
 
 
@@ -77,10 +73,10 @@ def _schema(d: dict) -> vol.Schema:
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
             # --- system I/O sensors (all optional, deletable) ---
-            _optional_entity(CONF_GRID_IMPORT, d): _ENTITY_SEL,
-            _optional_entity(CONF_GRID_EXPORT, d): _ENTITY_SEL,
-            _optional_entity(CONF_BATTERY_IMPORT, d): _ENTITY_SEL,
-            _optional_entity(CONF_BATTERY_EXPORT, d): _ENTITY_SEL,
+            _optional_entity(CONF_GRID_IMPORT): _ENTITY_SEL,
+            _optional_entity(CONF_GRID_EXPORT): _ENTITY_SEL,
+            _optional_entity(CONF_BATTERY_IMPORT): _ENTITY_SEL,
+            _optional_entity(CONF_BATTERY_EXPORT): _ENTITY_SEL,
             # --- effective sensor switch (options only) ---
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,

@@ -28,48 +28,18 @@ from shady.const import (
 class TestOptionalEntity:
     """_optional_entity schema-key helper."""
 
-    def test_no_default_when_key_absent(self):
-        """Field should render empty when no value is stored."""
-        key = _optional_entity(CONF_GRID_IMPORT, {})
-        assert isinstance(key, vol.Optional)
-        assert key.default is vol.UNDEFINED
+    def test_always_no_default(self):
+        """Field must never have a default, regardless of stored value."""
+        assert _optional_entity(CONF_GRID_IMPORT).default is vol.UNDEFINED
 
-    def test_no_default_when_value_is_none(self):
-        """Field should render empty when stored value is None (explicitly cleared)."""
-        key = _optional_entity(CONF_GRID_IMPORT, {CONF_GRID_IMPORT: None})
-        assert isinstance(key, vol.Optional)
-        assert key.default is vol.UNDEFINED
+    def test_returns_vol_optional(self):
+        """Return type must be vol.Optional."""
+        assert isinstance(_optional_entity(CONF_GRID_IMPORT), vol.Optional)
 
-    def test_no_default_when_value_is_empty_string(self):
-        """Field should render empty when stored value is an empty string."""
-        key = _optional_entity(CONF_GRID_IMPORT, {CONF_GRID_IMPORT: ""})
-        assert isinstance(key, vol.Optional)
-        assert key.default is vol.UNDEFINED
-
-    def test_default_set_when_value_present(self):
-        """Field should be pre-populated when a real entity ID is stored."""
-        entity_id = "sensor.grid_import"
-        key = _optional_entity(CONF_GRID_IMPORT, {CONF_GRID_IMPORT: entity_id})
-        assert isinstance(key, vol.Optional)
-        assert key.default() == entity_id
-
-    def test_all_system_sensor_keys(self):
-        """All four system sensor keys behave correctly."""
-        stored = {
-            CONF_GRID_IMPORT: "sensor.gi",
-            CONF_GRID_EXPORT: None,
-            CONF_BATTERY_IMPORT: "",
-            # CONF_BATTERY_EXPORT absent
-        }
-        gi = _optional_entity(CONF_GRID_IMPORT, stored)
-        ge = _optional_entity(CONF_GRID_EXPORT, stored)
-        bi = _optional_entity(CONF_BATTERY_IMPORT, stored)
-        be = _optional_entity(CONF_BATTERY_EXPORT, stored)
-
-        assert gi.default() == "sensor.gi"
-        assert ge.default is vol.UNDEFINED
-        assert bi.default is vol.UNDEFINED
-        assert be.default is vol.UNDEFINED
+    def test_all_system_sensor_keys_have_no_default(self):
+        """All four system sensor keys always render empty."""
+        for key in [CONF_GRID_IMPORT, CONF_GRID_EXPORT, CONF_BATTERY_IMPORT, CONF_BATTERY_EXPORT]:
+            assert _optional_entity(key).default is vol.UNDEFINED
 
 
 class TestMergeOptions:
