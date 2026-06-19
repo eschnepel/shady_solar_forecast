@@ -509,8 +509,16 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         # --- choose sensor source for correction model ---
         use_effective = self._use_effective() and bool(pv_sensors)
 
+        # Normalise EM forecast to 5-min slots here so that raw_out uses the
+        # same per-slot scale as corrected/forecast_today.  Without this,
+        # raw_out would be built from the original EM intervals (e.g. 60-min
+        # slots) and wh_to_unit would over-scale by the ratio of the EM
+        # interval to 5 min (factor 12 for hourly providers with unit "W").
+        raw_normalised_for_output = normalise_em_to_5min(raw)
+        _debug_window_slots("1b_raw_normalised_for_output", raw_normalised_for_output, "Wh/slot")
+
         if not pv_sensors:
-            corrected = dict(raw)
+            corrected = dict(raw_normalised_for_output)
             string_forecasts: dict[str, dict[str, float]] = {}
         else:
             corrected, string_forecasts = await self._apply_corrections(
@@ -530,13 +538,15 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             {ts: wh for ts, wh in corrected.items() if tomorrow_start <= parse_dt(ts) < day_after}
         )
 
-        # Convert internal Wh slots to fc_sensor output unit
+        # Convert internal Wh slots to fc_sensor output unit.
+        # raw_out uses the 5-min-normalised raw so it is on the same per-slot
+        # scale as forecast_today_out (both Wh/5-min before unit conversion).
         forecast_today_out = wh_to_unit(forecast_today, fc_unit)
         forecast_tomorrow_out = wh_to_unit(forecast_tomorrow, fc_unit)
         string_forecasts_out = {
             eid: wh_to_unit(slots, fc_unit) for eid, slots in string_forecasts.items()
         }
-        raw_out = wh_to_unit(raw, fc_unit)
+        raw_out = wh_to_unit(raw_normalised_for_output, fc_unit)
 
         _debug_window_slots("5a_raw_out_unit", raw_out, fc_unit)
         _debug_window_slots("5b_forecast_today_out_unit", forecast_today_out, fc_unit)
