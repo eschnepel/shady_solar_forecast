@@ -30,6 +30,7 @@ from .const import (
     DEFAULT_FILTER_RECORDER_GAPS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
     DOMAIN,
+    SYSTEM_SENSOR_KEYS,
 )
 
 _ENTITY_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
@@ -44,6 +45,19 @@ _ALGORITHM_SEL = selector.SelectSelector(
     )
 )
 _BOOL_SEL = selector.BooleanSelector()
+
+
+def _optional_entity(key: str, d: dict) -> vol.Optional:
+    """Return a vol.Optional for an entity selector.
+
+    A ``default`` is only attached when the key is already present in *d*.
+    Without a default the HA frontend renders the field empty instead of
+    re-injecting the previously stored entity ID — which is exactly what we
+    want so the user can clear the field permanently.
+    """
+    if key in d and d[key]:
+        return vol.Optional(key, default=d[key])
+    return vol.Optional(key)
 
 
 def _schema(d: dict) -> vol.Schema:
@@ -62,11 +76,11 @@ def _schema(d: dict) -> vol.Schema:
             vol.Required(
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
-            # --- system I/O sensors (all optional) ---
-            vol.Optional(CONF_GRID_IMPORT, default=_get(CONF_GRID_IMPORT)): _ENTITY_SEL,
-            vol.Optional(CONF_GRID_EXPORT, default=_get(CONF_GRID_EXPORT)): _ENTITY_SEL,
-            vol.Optional(CONF_BATTERY_IMPORT, default=_get(CONF_BATTERY_IMPORT)): _ENTITY_SEL,
-            vol.Optional(CONF_BATTERY_EXPORT, default=_get(CONF_BATTERY_EXPORT)): _ENTITY_SEL,
+            # --- system I/O sensors (all optional, deletable) ---
+            _optional_entity(CONF_GRID_IMPORT, d): _ENTITY_SEL,
+            _optional_entity(CONF_GRID_EXPORT, d): _ENTITY_SEL,
+            _optional_entity(CONF_BATTERY_IMPORT, d): _ENTITY_SEL,
+            _optional_entity(CONF_BATTERY_EXPORT, d): _ENTITY_SEL,
             # --- effective sensor switch (options only) ---
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,
@@ -97,12 +111,26 @@ class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
         return _OptionsFlow(entry)
 
 
+def _merge_options(user_input: dict) -> dict:
+    """Return options dict with optional sensor keys explicitly set.
+
+    Keys that the user cleared (absent from *user_input*) are written as
+    ``None`` so that ``_cfg`` does not fall back to the original
+    ``entry.data`` value on the next options-flow open.
+    """
+    merged = dict(user_input)
+    for key in SYSTEM_SENSOR_KEYS:
+        if key not in merged:
+            merged[key] = None
+    return merged
+
+
 class _OptionsFlow(config_entries.OptionsFlow):
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
         self._entry = entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(title="", data=_merge_options(user_input))
         d = self._entry.options or self._entry.data
         return self.async_show_form(step_id="init", data_schema=_schema(d))
