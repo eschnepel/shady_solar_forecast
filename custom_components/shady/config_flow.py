@@ -47,12 +47,22 @@ _ALGORITHM_SEL = selector.SelectSelector(
 _BOOL_SEL = selector.BooleanSelector()
 
 
-def _optional_entity(key: str) -> vol.Optional:
-    """Return a vol.Optional for an entity selector, always without a default.
+def _optional_entity(key: str, stored_value: str | None) -> vol.Optional:
+    """Return a vol.Optional for an entity selector.
 
-    Never attaching a default ensures the HA frontend always renders the field
-    empty, so the user can clear a previously stored entity ID permanently.
+    Uses ``description={"suggested_value": ...}`` instead of ``default`` so
+    that HA renders the stored entity ID as a grey placeholder rather than a
+    pre-filled value.  The field is always submitted empty unless the user
+    actively picks an entity, which means:
+    - clicking ✕ → field empty → key absent from user_input → _merge_options
+      writes None → sensor permanently removed.
+    - leaving the suggestion as-is requires the user to re-select it, which
+      is the intended UX for an explicitly clearable field.
+
+    When no value is stored the description is omitted entirely.
     """
+    if stored_value:
+        return vol.Optional(key, description={"suggested_value": stored_value})
     return vol.Optional(key)
 
 
@@ -73,10 +83,10 @@ def _schema(d: dict) -> vol.Schema:
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
             # --- system I/O sensors (all optional, deletable) ---
-            _optional_entity(CONF_GRID_IMPORT): _ENTITY_SEL,
-            _optional_entity(CONF_GRID_EXPORT): _ENTITY_SEL,
-            _optional_entity(CONF_BATTERY_IMPORT): _ENTITY_SEL,
-            _optional_entity(CONF_BATTERY_EXPORT): _ENTITY_SEL,
+            _optional_entity(CONF_GRID_IMPORT, _get(CONF_GRID_IMPORT)): _ENTITY_SEL,
+            _optional_entity(CONF_GRID_EXPORT, _get(CONF_GRID_EXPORT)): _ENTITY_SEL,
+            _optional_entity(CONF_BATTERY_IMPORT, _get(CONF_BATTERY_IMPORT)): _ENTITY_SEL,
+            _optional_entity(CONF_BATTERY_EXPORT, _get(CONF_BATTERY_EXPORT)): _ENTITY_SEL,
             # --- effective sensor switch (options only) ---
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,
@@ -107,17 +117,25 @@ class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
         return _OptionsFlow(entry)
 
 
-def _merge_options(user_input: dict) -> dict:
-    """Return options dict with optional sensor keys explicitly set.
+def _merge_options(user_input: dict, stored: dict) -> dict:
+    """Return options dict with optional sensor keys correctly resolved.
 
-    Keys that the user cleared (absent from *user_input*) are written as
-    ``None`` so that ``_cfg`` does not fall back to the original
-    ``entry.data`` value on the next options-flow open.
+    Three cases for each SYSTEM_SENSOR_KEY:
+    - Key present in user_input with a value  → user (re-)selected a sensor, keep it.
+    - Key present in user_input as None        → user clicked ✕, delete it.
+    - Key absent from user_input               → user did not touch the field
+                                                 (suggested_value shown as placeholder),
+                                                 preserve the previously stored value.
+
+    This prevents two failure modes:
+    1. Stored value re-appears after clearing  (old bug: default= re-injected old ID).
+    2. Stored value is lost without user action (new bug: absent key treated as deletion).
     """
     merged = dict(user_input)
     for key in SYSTEM_SENSOR_KEYS:
         if key not in merged:
-            merged[key] = None
+            # User did not interact with this field — keep existing value
+            merged[key] = stored.get(key)
     return merged
 
 
@@ -126,7 +144,7 @@ class _OptionsFlow(config_entries.OptionsFlow):
         self._entry = entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        stored = self._entry.options or self._entry.data
         if user_input is not None:
-            return self.async_create_entry(title="", data=_merge_options(user_input))
-        d = self._entry.options or self._entry.data
-        return self.async_show_form(step_id="init", data_schema=_schema(d))
+            return self.async_create_entry(title="", data=_merge_options(user_input, stored))
+        return self.async_show_form(step_id="init", data_schema=_schema(stored))
