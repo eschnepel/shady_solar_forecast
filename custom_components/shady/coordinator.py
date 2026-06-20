@@ -62,6 +62,7 @@ from .forecast import fetch_raw_forecast
 from .units import (
     check_pv_unit_consistency,
     detect_unit,
+    from_wh_per_slot,
     to_wh_per_slot,
     wh_to_unit,
 )
@@ -553,9 +554,13 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         for eid, sf_slots in string_forecasts_out.items():
             _debug_window_slots(f"5c_string_out[{eid}]_unit", sf_slots, fc_unit)
 
-        # today_total and remaining in output unit
-        today_total = r(sum(forecast_today_out.values()))
-        remaining = r(sum(v for ts, v in forecast_today_out.items() if parse_dt(ts) >= now))
+        # Sum in Wh first (forecast_today holds Wh/slot), then convert the
+        # scalar to fc_unit.  Summing forecast_today_out (already in W/slot)
+        # would give a meaningless W-sum scaled by the number of slots.
+        today_total_wh = sum(forecast_today.values())
+        remaining_wh = sum(v for ts, v in forecast_today.items() if parse_dt(ts) >= now)
+        today_total = r(from_wh_per_slot(today_total_wh, fc_unit))
+        remaining = r(from_wh_per_slot(remaining_wh, fc_unit))
 
         _debug_window_message(
             "[DEBUG 6_totals] today_total=%.4f %s  remaining=%.4f %s",
