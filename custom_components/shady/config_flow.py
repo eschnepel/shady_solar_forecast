@@ -37,6 +37,21 @@ _ENTITY_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sens
 _ENTITY_MULTI_SEL = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", multiple=True)
 )
+
+
+def _optional_entity_validator(value: str | None) -> str | None:
+    """Validate an optional entity selector value.
+
+    EntitySelector rejects empty strings and None, but the HA frontend sends
+    an empty string when the user clears a field with ✕.  This validator
+    converts falsy values to None so the schema accepts them, while still
+    running the full EntitySelector validation for real entity IDs.
+    """
+    if not value:
+        return None
+    return _ENTITY_SEL(value)
+
+
 _ALGORITHM_SEL = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=ALGORITHM_OPTIONS,
@@ -48,18 +63,14 @@ _BOOL_SEL = selector.BooleanSelector()
 
 
 def _optional_entity(key: str, stored_value: str | None) -> vol.Optional:
-    """Return a vol.Optional for an entity selector.
+    """Return a vol.Optional for an optional entity selector.
 
-    Uses ``description={"suggested_value": ...}`` instead of ``default`` so
-    that HA renders the stored entity ID as a grey placeholder rather than a
-    pre-filled value.  The field is always submitted empty unless the user
-    actively picks an entity, which means:
-    - clicking ✕ → field empty → key absent from user_input → _merge_options
-      writes None → sensor permanently removed.
-    - leaving the suggestion as-is requires the user to re-select it, which
-      is the intended UX for an explicitly clearable field.
-
-    When no value is stored the description is omitted entirely.
+    ``description={"suggested_value": ...}`` renders the stored entity ID as
+    a grey pre-fill.  No ``default`` is set, so:
+    - field unberührt  → key absent from user_input
+    - user clicks ✕    → key present with empty string ''
+    The schema uses _optional_entity_validator (not _ENTITY_SEL directly) to
+    convert the empty string to None without raising a validation error.
     """
     if stored_value:
         return vol.Optional(key, description={"suggested_value": stored_value})
@@ -83,10 +94,14 @@ def _schema(d: dict) -> vol.Schema:
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
             # --- system I/O sensors (all optional, deletable) ---
-            _optional_entity(CONF_GRID_IMPORT, _get(CONF_GRID_IMPORT)): _ENTITY_SEL,
-            _optional_entity(CONF_GRID_EXPORT, _get(CONF_GRID_EXPORT)): _ENTITY_SEL,
-            _optional_entity(CONF_BATTERY_IMPORT, _get(CONF_BATTERY_IMPORT)): _ENTITY_SEL,
-            _optional_entity(CONF_BATTERY_EXPORT, _get(CONF_BATTERY_EXPORT)): _ENTITY_SEL,
+            _optional_entity(CONF_GRID_IMPORT, _get(CONF_GRID_IMPORT)): _optional_entity_validator,
+            _optional_entity(CONF_GRID_EXPORT, _get(CONF_GRID_EXPORT)): _optional_entity_validator,
+            _optional_entity(
+                CONF_BATTERY_IMPORT, _get(CONF_BATTERY_IMPORT)
+            ): _optional_entity_validator,
+            _optional_entity(
+                CONF_BATTERY_EXPORT, _get(CONF_BATTERY_EXPORT)
+            ): _optional_entity_validator,
             # --- effective sensor switch (options only) ---
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,
