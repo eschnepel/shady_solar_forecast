@@ -29,6 +29,7 @@ dev = [
   "pytest-cov",
   "ruff",
   "shadylib @ git+https://github.com/eschnepel/shadylib.git@v1.3.5",
+  "voluptuous",
 ]
 
 [tool.setuptools.packages.find]
