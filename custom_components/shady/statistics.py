@@ -6,7 +6,6 @@ Abstracts away the HA version differences in statistics_during_period row format
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from typing import Any
 
@@ -14,8 +13,6 @@ from homeassistant.components.recorder import get_instance as get_recorder
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def fetch_statistics(
