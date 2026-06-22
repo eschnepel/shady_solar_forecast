@@ -14,44 +14,26 @@ from homeassistant.helpers import selector
 from .const import (
     ALGORITHM_OPTIONS,
     CONF_ALGORITHM,
-    CONF_BATTERY_EXPORT,
-    CONF_BATTERY_IMPORT,
+    CONF_EXPORT_SENSORS,
     CONF_FC_SENSOR,
-    CONF_GRID_EXPORT,
-    CONF_GRID_IMPORT,
-    CONF_HISTORY_DAYS,
-    CONF_PV_SENSORS,
     CONF_FILTER_RECORDER_GAPS,
+    CONF_HISTORY_DAYS,
+    CONF_IMPORT_SENSORS,
+    CONF_PV_SENSORS,
     CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_ALGORITHM,
     DEFAULT_FC_SENSOR,
+    DEFAULT_FILTER_RECORDER_GAPS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_NAME,
-    DEFAULT_FILTER_RECORDER_GAPS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
     DOMAIN,
-    SYSTEM_SENSOR_KEYS,
 )
 
 _ENTITY_SEL = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 _ENTITY_MULTI_SEL = selector.EntitySelector(
     selector.EntitySelectorConfig(domain="sensor", multiple=True)
 )
-
-
-def _optional_entity_validator(value: str | None) -> str | None:
-    """Validate an optional entity selector value.
-
-    EntitySelector rejects empty strings and None, but the HA frontend sends
-    an empty string when the user clears a field with ✕.  This validator
-    converts falsy values to None so the schema accepts them, while still
-    running the full EntitySelector validation for real entity IDs.
-    """
-    if not value:
-        return None
-    return _ENTITY_SEL(value)
-
-
 _ALGORITHM_SEL = selector.SelectSelector(
     selector.SelectSelectorConfig(
         options=ALGORITHM_OPTIONS,
@@ -60,21 +42,6 @@ _ALGORITHM_SEL = selector.SelectSelector(
     )
 )
 _BOOL_SEL = selector.BooleanSelector()
-
-
-def _optional_entity(key: str, stored_value: str | None) -> vol.Optional:
-    """Return a vol.Optional for an optional entity selector.
-
-    ``description={"suggested_value": ...}`` renders the stored entity ID as
-    a grey pre-fill.  No ``default`` is set, so:
-    - field unberührt  → key absent from user_input
-    - user clicks ✕    → key present with empty string ''
-    The schema uses _optional_entity_validator (not _ENTITY_SEL directly) to
-    convert the empty string to None without raising a validation error.
-    """
-    if stored_value:
-        return vol.Optional(key, description={"suggested_value": stored_value})
-    return vol.Optional(key)
 
 
 def _schema(d: dict) -> vol.Schema:
@@ -93,15 +60,13 @@ def _schema(d: dict) -> vol.Schema:
             vol.Required(
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
-            # --- system I/O sensors (all optional, deletable) ---
-            _optional_entity(CONF_GRID_IMPORT, _get(CONF_GRID_IMPORT)): _optional_entity_validator,
-            _optional_entity(CONF_GRID_EXPORT, _get(CONF_GRID_EXPORT)): _optional_entity_validator,
-            _optional_entity(
-                CONF_BATTERY_IMPORT, _get(CONF_BATTERY_IMPORT)
-            ): _optional_entity_validator,
-            _optional_entity(
-                CONF_BATTERY_EXPORT, _get(CONF_BATTERY_EXPORT)
-            ): _optional_entity_validator,
+            # --- system I/O sensors (all optional, multi-select lists) ---
+            vol.Optional(
+                CONF_IMPORT_SENSORS, default=_get(CONF_IMPORT_SENSORS, [])
+            ): _ENTITY_MULTI_SEL,
+            vol.Optional(
+                CONF_EXPORT_SENSORS, default=_get(CONF_EXPORT_SENSORS, [])
+            ): _ENTITY_MULTI_SEL,
             # --- effective sensor switch (options only) ---
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,
@@ -132,34 +97,12 @@ class SolarForecastConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type
         return _OptionsFlow(entry)
 
 
-def _merge_options(user_input: dict, stored: dict) -> dict:
-    """Return options dict with optional sensor keys correctly resolved.
-
-    Three cases for each SYSTEM_SENSOR_KEY:
-    - Key present in user_input with a value  → user (re-)selected a sensor, keep it.
-    - Key present in user_input as None        → user clicked ✕, delete it.
-    - Key absent from user_input               → user did not touch the field
-                                                 (suggested_value shown as placeholder),
-                                                 preserve the previously stored value.
-
-    This prevents two failure modes:
-    1. Stored value re-appears after clearing  (old bug: default= re-injected old ID).
-    2. Stored value is lost without user action (new bug: absent key treated as deletion).
-    """
-    merged = dict(user_input)
-    for key in SYSTEM_SENSOR_KEYS:
-        if key not in merged:
-            # User did not interact with this field — keep existing value
-            merged[key] = stored.get(key)
-    return merged
-
-
 class _OptionsFlow(config_entries.OptionsFlow):
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
         self._entry = entry
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        stored = self._entry.options or self._entry.data
         if user_input is not None:
-            return self.async_create_entry(title="", data=_merge_options(user_input, stored))
-        return self.async_show_form(step_id="init", data_schema=_schema(stored))
+            return self.async_create_entry(title="", data=user_input)
+        d = self._entry.options or self._entry.data
+        return self.async_show_form(step_id="init", data_schema=_schema(d))

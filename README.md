@@ -73,13 +73,20 @@ When **Filter gap-successor samples** is enabled (default), Shady discards the f
 
 When **Use effective sensors** is enabled, Shady computes loss-corrected PV string values before training the correction models.
 
-The BMS (inverter/battery system) reports two grid-side sensors: **grid export** (power fed into the house grid from PV and/or battery discharge) and **grid import** (power drawn from the house grid, e.g. to charge the battery). The usable PV power is derived as:
+Configure any number of **import sensors** and **export sensors** — all measured relative to the BMS (inverter/battery system):
+
+| List | What to put here | Effect on loss |
+|---|---|---|
+| **Import sensors** | Power *entering* the BMS: grid draw, battery discharge | Increases loss |
+| **Export sensors** | Power *leaving* the BMS: grid feed-in, battery charge | Reduces loss |
+
+The total system loss per slot is computed inside [shadylib](https://github.com/eschnepel/shadylib):
 
 ```
-pv_usable = (grid_export + battery_import) − (grid_import + battery_export)
+total_loss = max(0, sum(pv_sensors) + sum(import_sensors) − sum(export_sensors))
 ```
 
-This removes the contribution of battery discharge and grid import so that only the PV-sourced portion remains. The resulting losses are distributed across PV strings using a waterfall cascade algorithm (implemented in [shadylib](https://github.com/eschnepel/shadylib)). This produces more accurate models when inverter output is regularly reduced by grid export limits or battery charging.
+This loss is distributed across PV strings using a waterfall cascade algorithm. This produces more accurate models when inverter output is regularly reduced by grid export limits or battery charging.
 
 ### Supported Input Units
 
@@ -148,10 +155,8 @@ The last successful forecast is saved to HA storage and restored on restart so s
 | **PV string sensors** | ✓ | One or more actual production sensors (5-min recorder statistics required); at least 1 required |
 | **History days** | – | Days of 5-min recorder history used for model training (default: 28, range: 7–365) |
 | **Correction algorithm** | – | `factor`, `linear` (default), or `quadratic` |
-| **BMS grid import sensor** | – | Power the BMS draws from the house grid (e.g. to charge the battery). Positive values only. |
-| **BMS grid export sensor** | – | Power the BMS feeds into the house grid (from PV and/or battery discharge). Positive values only. |
-| **Battery charge sensor** | – | Power flowing into the battery (charging). Positive values only. |
-| **Battery discharge sensor** | – | Power flowing out of the battery (discharging). Positive values only. |
+| **Import sensors** | – | One or more sensors for power *entering* the BMS (grid draw, battery discharge). Multi-select; leave empty if not used. |
+| **Export sensors** | – | One or more sensors for power *leaving* the BMS (grid feed-in, battery charge). Multi-select; leave empty if not used. |
 | **Use effective sensors** | – | Train models on loss-corrected PV values (requires at least one system I/O sensor; default: off) |
 | **Filter gap-successor samples** | – | Discard the first recorder sample after a downtime gap longer than one 5-minute slot. Prevents accumulated recorder values from skewing model training and effective-history backfill. Disable only if you observe unexpected data loss after enabling. (default: on) |
 

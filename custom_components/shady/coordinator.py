@@ -47,21 +47,19 @@ from .const import (
     DEFAULT_HISTORY_DAYS,
     DEFAULT_ALGORITHM,
     CONF_PV_SENSORS,
-    CONF_GRID_IMPORT,
-    CONF_GRID_EXPORT,
-    CONF_BATTERY_IMPORT,
-    CONF_BATTERY_EXPORT,
+    CONF_IMPORT_SENSORS,
+    CONF_EXPORT_SENSORS,
     CONF_FILTER_RECORDER_GAPS,
     DEFAULT_FILTER_RECORDER_GAPS,
     CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
-    SYSTEM_SENSOR_KEYS,
     CACHE_VERSION,
 )
 from .forecast import fetch_raw_forecast
 from .units import (
     check_pv_unit_consistency,
     detect_unit,
+    to_wh_per_slot_scalar,
     from_wh_per_slot,
     to_wh_per_slot,
     wh_to_unit,
@@ -275,9 +273,13 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def _active_pv_sensors(self) -> list[str]:
         return [s for s in self._cfg(CONF_PV_SENSORS, []) if s]
 
-    def _system_sensor_cfg(self) -> dict[str, str | None]:
-        """Return {conf_key: entity_id | None} for the four system sensor fields."""
-        return {key: self._cfg(key) or None for key in SYSTEM_SENSOR_KEYS}
+    def _import_sensors(self) -> list[str]:
+        """Return configured import sensor entity IDs."""
+        return [s for s in self._cfg(CONF_IMPORT_SENSORS, []) if s]
+
+    def _export_sensors(self) -> list[str]:
+        """Return configured export sensor entity IDs."""
+        return [s for s in self._cfg(CONF_EXPORT_SENSORS, []) if s]
 
     def _use_effective(self) -> bool:
         return bool(self._cfg(CONF_USE_EFFECTIVE_SENSORS, DEFAULT_USE_EFFECTIVE_SENSORS))
@@ -366,10 +368,12 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         """Run effective history backfill (called once on startup as a task)."""
         pv_sensors = self._active_pv_sensors()
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
-        system_cfg = self._system_sensor_cfg()
+        import_sensors = self._import_sensors()
+        export_sensors = self._export_sensors()
         await self._effective_store.async_backfill_if_needed(
             pv_sensors,
-            system_cfg,
+            import_sensors,
+            export_sensors,
             history_days,
             filter_recorder_gaps=self._cfg(CONF_FILTER_RECORDER_GAPS, DEFAULT_FILTER_RECORDER_GAPS),
         )
@@ -380,7 +384,8 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         pv_units: dict[str, str],
     ) -> dict[str, float]:
         """Compute effective power per string from current HA state values."""
-        system_cfg = self._system_sensor_cfg()
+        import_sensors = self._import_sensors()
+        export_sensors = self._export_sensors()
 
         def _state_val(entity_id: str | None) -> float:
             if not entity_id:
@@ -397,75 +402,25 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         for eid in pv_sensors:
             raw = _state_val(eid)
             unit = pv_units.get(eid, "W")
-            # Normalise to W equivalent for loss calculation
-            from .units import _TO_WH, _SLOT_H
+            # Normalise to Wh/slot for loss calculation
+            pv_vals.append(max(0.0, to_wh_per_slot_scalar(raw, unit)))
 
-            if unit == "W":
-                pv_vals.append(max(0.0, raw))
-            elif unit == "kW":
-                pv_vals.append(max(0.0, raw * 1000.0))
-            else:
-                # Energy sensors: convert Wh/slot → W equivalent
-                factor = _TO_WH.get(unit, 1.0)
-                pv_vals.append(max(0.0, raw * factor / _SLOT_H))
-
-        def _sys(conf_key: str) -> float:
-            return _state_val(system_cfg.get(conf_key))
-
-        # BMS sensor semantics
-        # ----------------------
-        # Each BMS sensor is bidirectional: positive values indicate the primary
-        # direction, negative values indicate the opposite direction within the
-        # same 5-minute aggregation slot.
+        # BMS semantics (all sensors relative to the BMS):
+        #   export_sensors: power leaving the BMS (grid feed-in, battery charge) → reduces loss
+        #   import_sensors: power entering the BMS (grid draw, battery discharge) → increases loss
         #
-        #   grid_export_raw > 0  → BMS feeds power into the house grid
-        #   grid_export_raw < 0  → BMS draws power from the house grid (overlap)
-        #   grid_import_raw > 0  → BMS draws power from the house grid
-        #   grid_import_raw < 0  → BMS feeds power into the house grid (overlap)
-        #
-        # Both sensors of a pair can be non-zero within a 5-minute slot due to
-        # aggregation of sub-minute switching.  The net directional values are:
-        #
-        #   grid_export_net = max(0, grid_export_raw) + max(0, -grid_import_raw)
-        #   grid_import_net = max(0, grid_import_raw) + max(0, -grid_export_raw)
-        #
-        # Since max(0,x) - max(0,-x) = x, the full pv_usable expression simplifies
-        # to using the raw values directly:
-        #
-        #   pv_usable = max(0,
-        #       grid_export_raw - grid_import_raw
-        #     + battery_import_raw - battery_export_raw
-        #   )
-        #
-        # This is passed as grid_export to shadylib so that:
-        #   total_loss = pv_sum - pv_usable
-        pv_usable = max(
-            0.0,
-            _sys(CONF_GRID_EXPORT)
-            - _sys(CONF_GRID_IMPORT)
-            + _sys(CONF_BATTERY_IMPORT)
-            - _sys(CONF_BATTERY_EXPORT),
-        )
-
+        # total_loss = max(0, pv_sum + net_import - net_export) — computed inside shadylib
         effective = compute_effective_strings(
             pv_vals,
-            grid_export=pv_usable,
+            net_import=sum(_state_val(eid) for eid in import_sensors),
+            net_export=sum(_state_val(eid) for eid in export_sensors),
         )
 
         # Convert back to the PV sensor's native unit for display
         result: dict[str, float] = {}
         for i, eid in enumerate(pv_sensors):
             unit = pv_units.get(eid, "W")
-            eff_w = effective[i]
-            if unit == "W":
-                result[eid] = round(eff_w, 2)
-            elif unit == "kW":
-                result[eid] = round(eff_w / 1000.0, 4)
-            else:
-                from .units import _SLOT_H, _FROM_WH
-
-                factor = _FROM_WH.get(unit, 1.0)
-                result[eid] = round(eff_w * _SLOT_H * factor, 2)
+            result[eid] = round(from_wh_per_slot(effective[i], unit), 4)
         return result
 
     # ---- main update ----
