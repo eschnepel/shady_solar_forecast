@@ -9,19 +9,15 @@
           "pv_sensors": "PV-String-Sensoren (mindestens 1 erforderlich)",
           "history_days": "Tage Recorder-Historie",
           "algorithm": "Korrektur-Algorithmus",
-          "grid_import": "BMS Netzbezug-Sensor (optional)",
-          "grid_export": "BMS Netzeinspeisung-Sensor (optional)",
-          "battery_import": "Batterie-Lade-Sensor (optional)",
-          "battery_export": "Batterie-Entlade-Sensor (optional)",
-          "use_effective_sensors": "Verlustbereingte effektive Sensoren für das Korrekturmodell verwenden",
+          "import_sensors": "Import-Sensoren (optional)",
+          "export_sensors": "Export-Sensoren (optional)",
+          "use_effective_sensors": "Verlustbereinigte effektive Sensoren für das Korrekturmodell verwenden",
           "filter_recorder_gaps": "Recorder-Lückennachfolger herausfiltern"
         },
         "data_description": {
           "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde",
-          "grid_import": "Leistung die das BMS aus dem Hausnetz bezieht (z.B. zum Laden der Batterie). Positiv = Bezug. Leer lassen falls nicht vorhanden.",
-          "grid_export": "Leistung die das BMS ins Hausnetz einspeist (aus PV und/oder Batterieentladung). Positiv = Einspeisung. Leer lassen falls nicht vorhanden.",
-          "battery_import": "Ladeleistung der Batterie. Positiv = Laden. Leer lassen falls nicht vorhanden.",
-          "battery_export": "Entladeleistung der Batterie. Positiv = Entladen. Leer lassen falls nicht vorhanden.",
+          "import_sensors": "Leistung die ins BMS fließt (Netzbezug, Batterieentladung). Einen oder mehrere Sensoren auswählen. Leer lassen falls nicht vorhanden.",
+          "export_sensors": "Leistung die das BMS verlässt (Netzeinspeisung, Batterieladung). Einen oder mehrere Sensoren auswählen. Leer lassen falls nicht vorhanden.",
           "use_effective_sensors": "Wenn aktiviert, verwendet das Korrekturmodell die verlustbereinigten effektiven PV-Werte statt der Roh-PV-Sensoren.",
           "filter_recorder_gaps": "Wenn aktiviert, wird der erste Recorder-Messwert nach einer Ausfallpause länger als ein Slot-Intervall (5 Min.) verworfen. Dies verhindert, dass akkumulierte Recorder-Werte das Korrekturmodell und den Effective-History-Backfill verfälschen."
         }
@@ -40,19 +36,15 @@
           "pv_sensors": "PV-String-Sensoren (mindestens 1 erforderlich)",
           "history_days": "Tage Recorder-Historie",
           "algorithm": "Korrektur-Algorithmus",
-          "grid_import": "BMS Netzbezug-Sensor (optional)",
-          "grid_export": "BMS Netzeinspeisung-Sensor (optional)",
-          "battery_import": "Batterie-Lade-Sensor (optional)",
-          "battery_export": "Batterie-Entlade-Sensor (optional)",
+          "import_sensors": "Import-Sensoren (optional)",
+          "export_sensors": "Export-Sensoren (optional)",
           "use_effective_sensors": "Verlustbereinigte effektive Sensoren für das Korrekturmodell verwenden",
           "filter_recorder_gaps": "Recorder-Lückennachfolger herausfiltern"
         },
         "data_description": {
           "algorithm": "Algorithmus zur Berechnung der Verschattungskorrektur pro Stunde",
-          "grid_import": "Leistung die das BMS aus dem Hausnetz bezieht (z.B. zum Laden der Batterie). Positiv = Bezug. Leer lassen falls nicht vorhanden.",
-          "grid_export": "Leistung die das BMS ins Hausnetz einspeist (aus PV und/oder Batterieentladung). Positiv = Einspeisung. Leer lassen falls nicht vorhanden.",
-          "battery_import": "Ladeleistung der Batterie. Positiv = Laden. Leer lassen falls nicht vorhanden.",
-          "battery_export": "Entladeleistung der Batterie. Positiv = Entladen. Leer lassen falls nicht vorhanden.",
+          "import_sensors": "Leistung die ins BMS fließt (Netzbezug, Batterieentladung). Einen oder mehrere Sensoren auswählen. Leer lassen falls nicht vorhanden.",
+          "export_sensors": "Leistung die das BMS verlässt (Netzeinspeisung, Batterieladung). Einen oder mehrere Sensoren auswählen. Leer lassen falls nicht vorhanden.",
           "use_effective_sensors": "Wenn aktiviert, verwendet das Korrekturmodell die verlustbereinigten effektiven PV-Werte statt der Roh-PV-Sensoren.",
           "filter_recorder_gaps": "Wenn aktiviert, wird der erste Recorder-Messwert nach einer Ausfallpause länger als ein Slot-Intervall (5 Min.) verworfen. Dies verhindert, dass akkumulierte Recorder-Werte das Korrekturmodell und den Effective-History-Backfill verfälschen."
         }
