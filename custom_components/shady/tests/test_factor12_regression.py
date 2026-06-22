@@ -51,8 +51,6 @@ UTC = timezone.utc
 # Helpers
 # ---------------------------------------------------------------------------
 
-_SLOTS_PER_HOUR = int(60 / 5)  # 12
-
 
 def _make_today_slots(
     hours: range,
