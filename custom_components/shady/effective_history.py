@@ -8,7 +8,7 @@ using shadylib.compute_effective_strings, and caches the result in HA Storage.
 Cache schema (JSON-serialisable):
     {
         "version": 2,
-        "config_hash": "<hex>",          # SHA-256 over pv_sensors + system_sensor_cfg
+        "config_hash": "<hex>",          # SHA-256 over pv_sensors + import/export_sensors
                                           # + installed shadylib version
         "cached_until": "<ISO-datetime>",      # latest slot covered
         "strings": {
@@ -38,10 +38,6 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_BATTERY_EXPORT,
-    CONF_BATTERY_IMPORT,
-    CONF_GRID_EXPORT,
-    CONF_GRID_IMPORT,
     EFFECTIVE_STORAGE_KEY,
     EFFECTIVE_STORAGE_VERSION,
 )
@@ -78,14 +74,15 @@ _HASH_LENGTH = 16  # hex chars from SHA-256 stored in cache
 
 def compute_config_hash(
     pv_sensors: list[str],
-    system_sensor_cfg: dict[str, str | None],
+    import_sensors: list[str],
+    export_sensors: list[str],
 ) -> str:
     """Return a short SHA-256 hex digest over the inputs that affect effective-history calculation.
 
     The hash covers:
     - the installed ``shadylib`` version (algorithm changes invalidate the cache)
     - ``pv_sensors`` list (order matters – ``compute_effective_strings`` is index-based)
-    - ``system_sensor_cfg`` mapping (grid/battery entity IDs)
+    - ``import_sensors`` and ``export_sensors`` lists
 
     Returns the first ``_HASH_LENGTH`` hex characters of the digest.
     """
@@ -98,7 +95,8 @@ def compute_config_hash(
         {
             "shadylib": lib_version,
             "pv_sensors": pv_sensors,
-            "system_sensor_cfg": system_sensor_cfg,
+            "import_sensors": import_sensors,
+            "export_sensors": export_sensors,
         },
         sort_keys=True,
     )
@@ -197,7 +195,8 @@ class EffectiveHistoryStore:
     async def async_backfill_if_needed(
         self,
         pv_sensors: list[str],
-        system_sensor_cfg: dict[str, str | None],
+        import_sensors: list[str],
+        export_sensors: list[str],
         history_days: int,
         filter_recorder_gaps: bool = True,
     ) -> None:
@@ -206,19 +205,21 @@ class EffectiveHistoryStore:
         Fetches recorder statistics for all sensors involved in the loss
         calculation for any slots not yet in the cache.
 
-        If the computed ``config_hash`` (over ``pv_sensors``, ``system_sensor_cfg``
-        and the installed shadylib version) differs from the hash stored in the
-        cache, the entire cache is invalidated and rebuilt from scratch.
+        If the computed ``config_hash`` (over ``pv_sensors``, ``import_sensors``,
+        ``export_sensors`` and the installed shadylib version) differs from the
+        hash stored in the cache, the entire cache is invalidated and rebuilt
+        from scratch.
 
         Args:
-            pv_sensors:         Ordered list of PV string entity IDs.
-            system_sensor_cfg:  {conf_key: entity_id | None} for grid/battery.
-            history_days:       How many days back the history should cover.
+            pv_sensors:      Ordered list of PV string entity IDs.
+            import_sensors:  Entity IDs of all import sensors (grid + battery).
+            export_sensors:  Entity IDs of all export sensors (grid + battery).
+            history_days:    How many days back the history should cover.
         """
         if not pv_sensors:
             return
 
-        current_hash = compute_config_hash(pv_sensors, system_sensor_cfg)
+        current_hash = compute_config_hash(pv_sensors, import_sensors, export_sensors)
         if self._config_hash is not None and self._config_hash != current_hash:
             _LOGGER.info(
                 "Effective history cache invalidated: config hash changed (%s → %s). "
@@ -246,7 +247,7 @@ class EffectiveHistoryStore:
         fetch_from = min(required_start, cache_start)
 
         # Collect all entity IDs we need statistics for
-        system_entity_ids: list[str] = [eid for eid in system_sensor_cfg.values() if eid]
+        system_entity_ids: list[str] = import_sensors + export_sensors
         all_ids: list[str] = pv_sensors + system_entity_ids
 
         _LOGGER.info(
@@ -297,12 +298,8 @@ class EffectiveHistoryStore:
             _LOGGER.debug("Effective history backfill: no recorder data found.")
             return
 
-        # Resolve system sensor entity IDs from config keys
-        def _sys_val(conf_key: str, slot: str) -> float:
-            eid = system_sensor_cfg.get(conf_key)
-            if not eid:
-                return 0.0
-            return sys_slot_maps.get(eid, {}).get(slot, 0.0)
+        def _sum_val(sensors: list[str], slot: str) -> float:
+            return sum(sys_slot_maps.get(eid, {}).get(slot, 0.0) for eid in sensors)
 
         new_slots: dict[str, dict[str, float]] = {eid: {} for eid in pv_sensors}
         latest_slot: datetime | None = self._cached_until
@@ -318,45 +315,15 @@ class EffectiveHistoryStore:
 
             pv_vals = [pv_slot_maps[eid].get(slot_key, 0.0) for eid in pv_sensors]
 
-            # BMS sensor semantics
-            # ----------------------
-            # Each BMS sensor is bidirectional: positive values indicate the
-            # primary direction, negative values indicate the opposite direction
-            # within the same 5-minute aggregation slot.
+            # BMS semantics (all sensors relative to the BMS):
+            #   export_sensors: power leaving BMS (grid feed-in, battery charge)
+            #   import_sensors: power entering BMS (grid draw, battery discharge)
             #
-            #   grid_export_raw > 0  → BMS feeds power into the house grid
-            #   grid_export_raw < 0  → BMS draws power from the house grid (overlap)
-            #   grid_import_raw > 0  → BMS draws power from the house grid
-            #   grid_import_raw < 0  → BMS feeds power into the house grid (overlap)
-            #
-            # Both sensors of a pair can be non-zero within a 5-minute slot due
-            # to aggregation of sub-minute switching.  The net directional values
-            # are:
-            #
-            #   grid_export_net = max(0, grid_export_raw) + max(0, -grid_import_raw)
-            #   grid_import_net = max(0, grid_import_raw) + max(0, -grid_export_raw)
-            #
-            # Since max(0,x) - max(0,-x) = x, the full pv_usable expression
-            # simplifies to using the raw values directly:
-            #
-            #   pv_usable = max(0,
-            #       grid_export_raw - grid_import_raw
-            #     + battery_import_raw - battery_export_raw
-            #   )
-            #
-            # This is passed as grid_export to shadylib so that:
-            #   total_loss = pv_sum - pv_usable
-            pv_usable = max(
-                0.0,
-                _sys_val(CONF_GRID_EXPORT, slot_key)
-                - _sys_val(CONF_GRID_IMPORT, slot_key)
-                + _sys_val(CONF_BATTERY_IMPORT, slot_key)
-                - _sys_val(CONF_BATTERY_EXPORT, slot_key),
-            )
-
+            # total_loss = max(0, pv_sum + net_import - net_export) — computed in shadylib
             effective = compute_effective_strings(
                 pv_vals,
-                grid_export=pv_usable,
+                net_import=_sum_val(import_sensors, slot_key),
+                net_export=_sum_val(export_sensors, slot_key),
             )
 
             for i, eid in enumerate(pv_sensors):

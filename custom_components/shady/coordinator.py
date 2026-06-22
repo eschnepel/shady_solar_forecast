@@ -47,21 +47,20 @@ from .const import (
     DEFAULT_HISTORY_DAYS,
     DEFAULT_ALGORITHM,
     CONF_PV_SENSORS,
-    CONF_GRID_IMPORT,
-    CONF_GRID_EXPORT,
-    CONF_BATTERY_IMPORT,
-    CONF_BATTERY_EXPORT,
+    CONF_IMPORT_SENSORS,
+    CONF_EXPORT_SENSORS,
     CONF_FILTER_RECORDER_GAPS,
     DEFAULT_FILTER_RECORDER_GAPS,
     CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
-    SYSTEM_SENSOR_KEYS,
     CACHE_VERSION,
 )
 from .forecast import fetch_raw_forecast
 from .units import (
     check_pv_unit_consistency,
     detect_unit,
+    to_wh_per_slot_scalar,
+    from_wh_per_slot,
     to_wh_per_slot,
     wh_to_unit,
 )
@@ -102,6 +101,81 @@ class _DiscardOnMigrationStore(Store):
 _LOGGER = logging.getLogger(__name__)
 
 _FALLBACK_INTERVAL = timedelta(hours=1)
+
+# ---------------------------------------------
+# Temporary debug helpers – disabled by default
+# ---------------------------------------------
+_DEBUG_WINDOW_LOGGING_ENABLED = True
+_DEBUG_WINDOW_START = (10, 50)  # (hour, minute) inclusive
+_DEBUG_WINDOW_END = (12, 10)  # (hour, minute) inclusive
+
+
+def _rows_to_slots(rows: list[dict]) -> dict[str, float]:
+    return {
+        (r["start"].isoformat() if hasattr(r["start"], "isoformat") else str(r["start"])): r["mean"]  # noqa: E501
+        for r in rows
+    }
+
+
+def _debug_window_slots(
+    label: str,
+    slots: dict[str, float],
+    unit: str = "",
+) -> None:
+    """Log slot values inside the 10:50–12:10 debug window.
+
+    Filters *slots* to entries whose HH:MM portion falls within the debug
+    window (boundaries inclusive) and emits one WARNING line per slot so
+    they are visible even at the default log level in Home Assistant.
+
+    Args:
+        label:  Stage label printed before each value line.
+        slots:  {ISO-timestamp: value} dict (any resolution / timezone).
+        unit:   Optional unit string appended to each value (e.g. "Wh", "W").
+    """
+    if not _DEBUG_WINDOW_LOGGING_ENABLED:
+        return
+    if isinstance(slots, list):
+        slots = _rows_to_slots(slots)
+    h_start, m_start = _DEBUG_WINDOW_START
+    h_end, m_end = _DEBUG_WINDOW_END
+    start_total = h_start * 60 + m_start
+    end_total = h_end * 60 + m_end
+
+    found: list[tuple[str, float]] = []
+    for ts, val in slots.items():
+        # Extract HH:MM regardless of date or timezone suffix
+        # ISO strings look like "2025-06-02T10:55", "2025-06-02T10:55:00+02:00", …
+        try:
+            t_part = ts.split("T", 1)[1] if "T" in ts else ts
+            hh, mm = int(t_part[:2]), int(t_part[3:5])
+        except (IndexError, ValueError):
+            continue
+        total = hh * 60 + mm
+        if start_total <= total <= end_total:
+            found.append((ts, val))
+
+    for ts, val in sorted(found):
+        unit_str = f" {unit}" if unit else ""
+        _LOGGER.warning("[DEBUG %s] %s → %.4f%s", label, ts, val, unit_str)
+
+
+def _debug_window_rows(
+    label: str,
+    rows: list[dict],
+    unit: str = "",
+) -> None:
+    if not _DEBUG_WINDOW_LOGGING_ENABLED:
+        return
+    slots = _rows_to_slots(rows)
+    _debug_window_slots(label, slots, unit)
+
+
+def _debug_window_message(msg: object, *args: object):
+    if _DEBUG_WINDOW_LOGGING_ENABLED:
+        _LOGGER.warning(msg, *args)
+
+
 _STORAGE_KEY = f"{DOMAIN}.last_forecast"
 _STORAGE_VERSION = CACHE_VERSION
 
@@ -199,9 +273,13 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
     def _active_pv_sensors(self) -> list[str]:
         return [s for s in self._cfg(CONF_PV_SENSORS, []) if s]
 
-    def _system_sensor_cfg(self) -> dict[str, str | None]:
-        """Return {conf_key: entity_id | None} for the four system sensor fields."""
-        return {key: self._cfg(key) or None for key in SYSTEM_SENSOR_KEYS}
+    def _import_sensors(self) -> list[str]:
+        """Return configured import sensor entity IDs."""
+        return [s for s in self._cfg(CONF_IMPORT_SENSORS, []) if s]
+
+    def _export_sensors(self) -> list[str]:
+        """Return configured export sensor entity IDs."""
+        return [s for s in self._cfg(CONF_EXPORT_SENSORS, []) if s]
 
     def _use_effective(self) -> bool:
         return bool(self._cfg(CONF_USE_EFFECTIVE_SENSORS, DEFAULT_USE_EFFECTIVE_SENSORS))
@@ -290,10 +368,12 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         """Run effective history backfill (called once on startup as a task)."""
         pv_sensors = self._active_pv_sensors()
         history_days = self._cfg(CONF_HISTORY_DAYS, DEFAULT_HISTORY_DAYS)
-        system_cfg = self._system_sensor_cfg()
+        import_sensors = self._import_sensors()
+        export_sensors = self._export_sensors()
         await self._effective_store.async_backfill_if_needed(
             pv_sensors,
-            system_cfg,
+            import_sensors,
+            export_sensors,
             history_days,
             filter_recorder_gaps=self._cfg(CONF_FILTER_RECORDER_GAPS, DEFAULT_FILTER_RECORDER_GAPS),
         )
@@ -304,7 +384,8 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         pv_units: dict[str, str],
     ) -> dict[str, float]:
         """Compute effective power per string from current HA state values."""
-        system_cfg = self._system_sensor_cfg()
+        import_sensors = self._import_sensors()
+        export_sensors = self._export_sensors()
 
         def _state_val(entity_id: str | None) -> float:
             if not entity_id:
@@ -321,75 +402,25 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         for eid in pv_sensors:
             raw = _state_val(eid)
             unit = pv_units.get(eid, "W")
-            # Normalise to W equivalent for loss calculation
-            from .units import _TO_WH, _SLOT_H
+            # Normalise to Wh/slot for loss calculation
+            pv_vals.append(max(0.0, to_wh_per_slot_scalar(raw, unit)))
 
-            if unit == "W":
-                pv_vals.append(max(0.0, raw))
-            elif unit == "kW":
-                pv_vals.append(max(0.0, raw * 1000.0))
-            else:
-                # Energy sensors: convert Wh/slot → W equivalent
-                factor = _TO_WH.get(unit, 1.0)
-                pv_vals.append(max(0.0, raw * factor / _SLOT_H))
-
-        def _sys(conf_key: str) -> float:
-            return _state_val(system_cfg.get(conf_key))
-
-        # BMS sensor semantics
-        # ----------------------
-        # Each BMS sensor is bidirectional: positive values indicate the primary
-        # direction, negative values indicate the opposite direction within the
-        # same 5-minute aggregation slot.
+        # BMS semantics (all sensors relative to the BMS):
+        #   export_sensors: power leaving the BMS (grid feed-in, battery charge) → reduces loss
+        #   import_sensors: power entering the BMS (grid draw, battery discharge) → increases loss
         #
-        #   grid_export_raw > 0  → BMS feeds power into the house grid
-        #   grid_export_raw < 0  → BMS draws power from the house grid (overlap)
-        #   grid_import_raw > 0  → BMS draws power from the house grid
-        #   grid_import_raw < 0  → BMS feeds power into the house grid (overlap)
-        #
-        # Both sensors of a pair can be non-zero within a 5-minute slot due to
-        # aggregation of sub-minute switching.  The net directional values are:
-        #
-        #   grid_export_net = max(0, grid_export_raw) + max(0, -grid_import_raw)
-        #   grid_import_net = max(0, grid_import_raw) + max(0, -grid_export_raw)
-        #
-        # Since max(0,x) - max(0,-x) = x, the full pv_usable expression simplifies
-        # to using the raw values directly:
-        #
-        #   pv_usable = max(0,
-        #       grid_export_raw - grid_import_raw
-        #     + battery_import_raw - battery_export_raw
-        #   )
-        #
-        # This is passed as grid_export to shadylib so that:
-        #   total_loss = pv_sum - pv_usable
-        pv_usable = max(
-            0.0,
-            _sys(CONF_GRID_EXPORT)
-            - _sys(CONF_GRID_IMPORT)
-            + _sys(CONF_BATTERY_IMPORT)
-            - _sys(CONF_BATTERY_EXPORT),
-        )
-
+        # total_loss = max(0, pv_sum + net_import - net_export) — computed inside shadylib
         effective = compute_effective_strings(
             pv_vals,
-            grid_export=pv_usable,
+            net_import=sum(_state_val(eid) for eid in import_sensors),
+            net_export=sum(_state_val(eid) for eid in export_sensors),
         )
 
         # Convert back to the PV sensor's native unit for display
         result: dict[str, float] = {}
         for i, eid in enumerate(pv_sensors):
             unit = pv_units.get(eid, "W")
-            eff_w = effective[i]
-            if unit == "W":
-                result[eid] = round(eff_w, 2)
-            elif unit == "kW":
-                result[eid] = round(eff_w / 1000.0, 4)
-            else:
-                from .units import _SLOT_H, _FROM_WH
-
-                factor = _FROM_WH.get(unit, 1.0)
-                result[eid] = round(eff_w * _SLOT_H * factor, 2)
+            result[eid] = round(from_wh_per_slot(effective[i], unit), 4)
         return result
 
     # ---- main update ----
@@ -412,6 +443,7 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
 
     async def _build_data(self) -> CoordinatorData:
         raw = await fetch_raw_forecast(self.hass)
+        _debug_window_slots("1_raw_em_fetch", raw, "Wh(EM-interval)")
         pv_sensors = self._active_pv_sensors()
 
         # --- detect units (cached per entity_id) ---
@@ -433,13 +465,22 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         # --- choose sensor source for correction model ---
         use_effective = self._use_effective() and bool(pv_sensors)
 
+        # Normalise EM forecast to 5-min slots here so that raw_out uses the
+        # same per-slot scale as corrected/forecast_today.  Without this,
+        # raw_out would be built from the original EM intervals (e.g. 60-min
+        # slots) and wh_to_unit would over-scale by the ratio of the EM
+        # interval to 5 min (factor 12 for hourly providers with unit "W").
+        raw_normalised_for_output = normalise_em_to_5min(raw)
+        _debug_window_slots("1b_raw_normalised_for_output", raw_normalised_for_output, "Wh/slot")
+
         if not pv_sensors:
-            corrected = dict(raw)
+            corrected = dict(raw_normalised_for_output)
             string_forecasts: dict[str, dict[str, float]] = {}
         else:
             corrected, string_forecasts = await self._apply_corrections(
                 raw, pv_sensors, fc_unit, pv_units, use_effective=use_effective
             )
+        _debug_window_slots("4_corrected_wh_slot", corrected, "Wh/slot")
 
         now = dt_util.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -453,24 +494,36 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             {ts: wh for ts, wh in corrected.items() if tomorrow_start <= parse_dt(ts) < day_after}
         )
 
-        # Convert internal Wh slots to fc_sensor output unit
+        # Convert internal Wh slots to fc_sensor output unit.
+        # raw_out uses the 5-min-normalised raw so it is on the same per-slot
+        # scale as forecast_today_out (both Wh/5-min before unit conversion).
         forecast_today_out = wh_to_unit(forecast_today, fc_unit)
         forecast_tomorrow_out = wh_to_unit(forecast_tomorrow, fc_unit)
         string_forecasts_out = {
             eid: wh_to_unit(slots, fc_unit) for eid, slots in string_forecasts.items()
         }
-        raw_out = wh_to_unit(raw, fc_unit)
+        raw_out = wh_to_unit(raw_normalised_for_output, fc_unit)
 
-        # today_total and remaining in output unit
-        today_total = r(sum(forecast_today_out.values()))
-        remaining = r(sum(v for ts, v in forecast_today_out.items() if parse_dt(ts) >= now))
+        _debug_window_slots("5a_raw_out_unit", raw_out, fc_unit)
+        _debug_window_slots("5b_forecast_today_out_unit", forecast_today_out, fc_unit)
+        for eid, sf_slots in string_forecasts_out.items():
+            _debug_window_slots(f"5c_string_out[{eid}]_unit", sf_slots, fc_unit)
 
-        for needle in ("T12:", "T11:"):
-            rv = next((wh for ts, wh in raw.items() if needle in ts), None)
-            cv = next((wh for ts, wh in corrected.items() if needle in ts), None)
-            if rv is not None and cv is not None:
-                _LOGGER.info("Midday slot: raw=%.2f Wh  corrected=%.2f Wh", rv, cv)
-                break
+        # Sum in Wh first (forecast_today holds Wh/slot), then convert the
+        # scalar to fc_unit.  Summing forecast_today_out (already in W/slot)
+        # would give a meaningless W-sum scaled by the number of slots.
+        today_total_wh = sum(forecast_today.values())
+        remaining_wh = sum(v for ts, v in forecast_today.items() if parse_dt(ts) >= now)
+        today_total = r(from_wh_per_slot(today_total_wh, fc_unit))
+        remaining = r(from_wh_per_slot(remaining_wh, fc_unit))
+
+        _debug_window_message(
+            "[DEBUG 6_totals] today_total=%.4f %s  remaining=%.4f %s",
+            today_total,
+            fc_unit,
+            remaining,
+            fc_unit,
+        )
 
         return CoordinatorData(
             raw_forecast=raw_out,
@@ -568,14 +621,26 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         }
         fc_rows = to_wh_per_slot(raw_stats.get(fc_sensor, []), fc_unit)
 
+        _debug_window_rows(
+            f"3a_fc_rows_wh_slot[unit={fc_unit}]",
+            fc_rows,
+            "Wh/slot",
+        )
+
         # Fill in recorder-fetched rows for strings that needed it
         for s in recorder_pv_ids:
             pv_sensors_rows[s] = to_wh_per_slot(raw_stats.get(s, []), pv_units.get(s, "W"))
+            _debug_window_rows(
+                f"3b_pv_rows_wh_slot[{s},unit={pv_units.get(s, 'W')}]",
+                pv_sensors_rows[s],
+                "Wh/slot",
+            )
 
         # Normalise the EM forecast (arbitrary-interval timestamps) to a
         # complete 5-minute Wh/slot raster before passing to the model.
         # This ensures prediction inputs match the training scale (Wh/slot).
         raw_normalised = normalise_em_to_5min(raw)
+        _debug_window_slots("2_raw_normalised_5min", raw_normalised, "Wh/slot")
 
         # --- Training data cutoff: exclude today's slots from model fitting ---
         # Rows from today (start >= 00:00 local) are not used for bucket model

@@ -23,52 +23,57 @@ import pytest
 
 
 class TestComputeConfigHash:
-    def _hash(self, pv_sensors, system_sensor_cfg):
+    def _hash(self, pv_sensors, import_sensors=None, export_sensors=None):
         from shady.effective_history import compute_config_hash
 
-        return compute_config_hash(pv_sensors, system_sensor_cfg)
+        return compute_config_hash(
+            pv_sensors,
+            import_sensors or [],
+            export_sensors or [],
+        )
 
     def test_returns_16_hex_chars(self):
-        h = self._hash(["sensor.pv1"], {"grid_import": "sensor.gi"})
+        h = self._hash(["sensor.pv1"], import_sensors=["sensor.gi"])
         assert len(h) == 16
         assert all(c in "0123456789abcdef" for c in h)
 
     def test_same_inputs_same_hash(self):
-        cfg = {"grid_import": "sensor.gi", "grid_export": None}
-        assert self._hash(["sensor.pv1"], cfg) == self._hash(["sensor.pv1"], cfg)
+        assert self._hash(["sensor.pv1"], ["sensor.gi"]) == self._hash(
+            ["sensor.pv1"], ["sensor.gi"]
+        )
 
     def test_different_pv_sensors_different_hash(self):
-        cfg = {"grid_import": "sensor.gi"}
-        assert self._hash(["sensor.pv1"], cfg) != self._hash(["sensor.pv2"], cfg)
+        assert self._hash(["sensor.pv1"]) != self._hash(["sensor.pv2"])
 
     def test_pv_sensor_order_matters(self):
         """Order matters because compute_effective_strings is index-based."""
-        cfg = {"grid_import": "sensor.gi"}
-        assert self._hash(["sensor.pv1", "sensor.pv2"], cfg) != self._hash(
-            ["sensor.pv2", "sensor.pv1"], cfg
+        assert self._hash(["sensor.pv1", "sensor.pv2"]) != self._hash(["sensor.pv2", "sensor.pv1"])
+
+    def test_different_import_sensors_different_hash(self):
+        pv = ["sensor.pv1"]
+        assert self._hash(pv, import_sensors=["sensor.a"]) != self._hash(
+            pv, import_sensors=["sensor.b"]
         )
 
-    def test_different_system_cfg_different_hash(self):
+    def test_different_export_sensors_different_hash(self):
         pv = ["sensor.pv1"]
-        assert self._hash(pv, {"grid_import": "sensor.a"}) != self._hash(
-            pv, {"grid_import": "sensor.b"}
+        assert self._hash(pv, export_sensors=["sensor.a"]) != self._hash(
+            pv, export_sensors=["sensor.b"]
         )
 
-    def test_none_system_entity_does_not_raise(self):
+    def test_empty_sensors_does_not_raise(self):
         pv = ["sensor.pv1"]
-        cfg = {"grid_import": None, "grid_export": None, "battery_import": None}
-        assert len(self._hash(pv, cfg)) == 16
+        assert len(self._hash(pv)) == 16
 
     def test_shadylib_version_in_hash(self):
         """Changing the shadylib version must change the hash."""
         from shady.effective_history import compute_config_hash
 
         pv = ["sensor.pv1"]
-        cfg: dict = {}
         with patch("shady.effective_history._pkg_version", return_value="1.0.0"):
-            h1 = compute_config_hash(pv, cfg)
+            h1 = compute_config_hash(pv, [], [])
         with patch("shady.effective_history._pkg_version", return_value="2.0.0"):
-            h2 = compute_config_hash(pv, cfg)
+            h2 = compute_config_hash(pv, [], [])
         assert h1 != h2
 
 
@@ -141,12 +146,8 @@ class TestEffectiveHistoryHashInvalidation:
         assert s._cache  # populated from disk
 
         pv = ["sensor.pv1"]
-        sys_cfg: dict[str, str | None] = {
-            "grid_import": "sensor.gi",
-            "grid_export": None,
-            "battery_import": None,
-            "battery_export": None,
-        }
+        import_sensors = ["sensor.gi"]
+        export_sensors: list[str] = []
         with (
             patch("shady.effective_history.fetch_statistics", new=AsyncMock(return_value={})),
             patch(
@@ -154,7 +155,7 @@ class TestEffectiveHistoryHashInvalidation:
                 new=AsyncMock(return_value=("W", "measurement")),
             ),
         ):
-            await s.async_backfill_if_needed(pv, sys_cfg, history_days=30)
+            await s.async_backfill_if_needed(pv, import_sensors, export_sensors, history_days=30)
 
         assert s._cache == {}
         assert s._cached_until is None
@@ -166,13 +167,9 @@ class TestEffectiveHistoryHashInvalidation:
 
         hass = MagicMock()
         pv = ["sensor.pv1"]
-        sys_cfg: dict[str, str | None] = {
-            "grid_import": "sensor.gi",
-            "grid_export": None,
-            "battery_import": None,
-            "battery_export": None,
-        }
-        current_hash = compute_config_hash(pv, sys_cfg)
+        import_sensors = ["sensor.gi"]
+        export_sensors: list[str] = []
+        current_hash = compute_config_hash(pv, import_sensors, export_sensors)
 
         store_mock = MagicMock()
         store_mock.async_load = AsyncMock(
@@ -197,7 +194,7 @@ class TestEffectiveHistoryHashInvalidation:
                 new=AsyncMock(return_value=("W", "measurement")),
             ),
         ):
-            await s.async_backfill_if_needed(pv, sys_cfg, history_days=30)
+            await s.async_backfill_if_needed(pv, import_sensors, export_sensors, history_days=30)
 
         assert s._cache == original_cache
 
@@ -208,7 +205,8 @@ class TestEffectiveHistoryHashInvalidation:
 
         hass = MagicMock()
         pv = ["sensor.pv1"]
-        sys_cfg: dict[str, str | None] = {"grid_import": "sensor.gi"}
+        import_sensors = ["sensor.gi"]
+        export_sensors: list[str] = []
 
         store_mock = MagicMock()
         store_mock.async_load = AsyncMock(
@@ -232,10 +230,10 @@ class TestEffectiveHistoryHashInvalidation:
                 new=AsyncMock(return_value=("W", "measurement")),
             ),
         ):
-            await s.async_backfill_if_needed(pv, sys_cfg, history_days=30)
+            await s.async_backfill_if_needed(pv, import_sensors, export_sensors, history_days=30)
 
         assert "sensor.pv1" in s._cache  # NOT wiped
-        assert s._config_hash == compute_config_hash(pv, sys_cfg)
+        assert s._config_hash == compute_config_hash(pv, import_sensors, export_sensors)
 
     @pytest.mark.asyncio
     async def test_save_persists_config_hash(self):

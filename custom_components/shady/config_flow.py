@@ -14,20 +14,18 @@ from homeassistant.helpers import selector
 from .const import (
     ALGORITHM_OPTIONS,
     CONF_ALGORITHM,
-    CONF_BATTERY_EXPORT,
-    CONF_BATTERY_IMPORT,
+    CONF_EXPORT_SENSORS,
     CONF_FC_SENSOR,
-    CONF_GRID_EXPORT,
-    CONF_GRID_IMPORT,
-    CONF_HISTORY_DAYS,
-    CONF_PV_SENSORS,
     CONF_FILTER_RECORDER_GAPS,
+    CONF_HISTORY_DAYS,
+    CONF_IMPORT_SENSORS,
+    CONF_PV_SENSORS,
     CONF_USE_EFFECTIVE_SENSORS,
     DEFAULT_ALGORITHM,
     DEFAULT_FC_SENSOR,
+    DEFAULT_FILTER_RECORDER_GAPS,
     DEFAULT_HISTORY_DAYS,
     DEFAULT_NAME,
-    DEFAULT_FILTER_RECORDER_GAPS,
     DEFAULT_USE_EFFECTIVE_SENSORS,
     DOMAIN,
 )
@@ -62,11 +60,13 @@ def _schema(d: dict) -> vol.Schema:
             vol.Required(
                 CONF_ALGORITHM, default=_get(CONF_ALGORITHM, DEFAULT_ALGORITHM)
             ): _ALGORITHM_SEL,
-            # --- system I/O sensors (all optional) ---
-            vol.Optional(CONF_GRID_IMPORT, default=_get(CONF_GRID_IMPORT)): _ENTITY_SEL,
-            vol.Optional(CONF_GRID_EXPORT, default=_get(CONF_GRID_EXPORT)): _ENTITY_SEL,
-            vol.Optional(CONF_BATTERY_IMPORT, default=_get(CONF_BATTERY_IMPORT)): _ENTITY_SEL,
-            vol.Optional(CONF_BATTERY_EXPORT, default=_get(CONF_BATTERY_EXPORT)): _ENTITY_SEL,
+            # --- system I/O sensors (all optional, multi-select lists) ---
+            vol.Optional(
+                CONF_IMPORT_SENSORS, default=_get(CONF_IMPORT_SENSORS, [])
+            ): _ENTITY_MULTI_SEL,
+            vol.Optional(
+                CONF_EXPORT_SENSORS, default=_get(CONF_EXPORT_SENSORS, [])
+            ): _ENTITY_MULTI_SEL,
             # --- effective sensor switch (options only) ---
             vol.Optional(
                 CONF_USE_EFFECTIVE_SENSORS,

@@ -28,17 +28,13 @@ ALGORITHM_QUADRATIC = "quadratic"  # per-5-min-bucket WLS: pv ~ a*fc² + b*fc + 
 
 ALGORITHM_OPTIONS = [ALGORITHM_FACTOR, ALGORITHM_LINEAR, ALGORITHM_QUADRATIC]
 
-# System I/O sensor config keys (all optional, each a single entity_id or empty)
-CONF_GRID_IMPORT = "grid_import"
-CONF_GRID_EXPORT = "grid_export"
-CONF_BATTERY_IMPORT = "battery_import"
-CONF_BATTERY_EXPORT = "battery_export"
+# System I/O sensor config keys (all optional, each a list of entity_ids)
+CONF_IMPORT_SENSORS = "import_sensors"
+CONF_EXPORT_SENSORS = "export_sensors"
 
 SYSTEM_SENSOR_KEYS: list[str] = [
-    CONF_GRID_IMPORT,
-    CONF_GRID_EXPORT,
-    CONF_BATTERY_IMPORT,
-    CONF_BATTERY_EXPORT,
+    CONF_IMPORT_SENSORS,
+    CONF_EXPORT_SENSORS,
 ]
 
 # Filter gap-successor samples from recorder data

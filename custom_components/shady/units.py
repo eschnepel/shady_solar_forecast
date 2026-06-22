@@ -148,6 +148,18 @@ def check_pv_unit_consistency(units: dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def to_wh_per_slot_scalar(value: float, unit: str) -> float:
+    """Convert a single scalar sensor reading from *unit* to Wh per 5-min slot.
+
+    Power sensors  : W/kW   → Wh  (× slot_h or × slot_h × 1000)
+    Energy sensors : Wh/kWh/MWh → Wh (× 1 / 1000 / 1_000_000)
+    """
+    if unit not in _ALL_UNITS:
+        _LOGGER.warning("Shady: unknown unit '%s' in to_wh_per_slot_scalar – treating as Wh", unit)
+        return value
+    return value * _TO_WH[unit]
+
+
 def to_wh_per_slot(rows: list[dict], unit: str) -> list[dict]:
     """Convert [{start, mean}] rows from *unit* to Wh per 5-min slot in-place copy.
 

@@ -30,7 +30,7 @@ class _SubscriptableMock(MagicMock):
 class _GenericBase:
     """Base class that supports generic subscripting: class Foo(Base[T])."""
 
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, domain=None, **kwargs):
         super().__init_subclass__(**kwargs)
 
     def __class_getitem__(cls, item):
@@ -62,7 +62,12 @@ _stub(
     UnitOfPower=_SubscriptableMock(),
 )
 _stub("homeassistant.core", HomeAssistant=_GenericBase, callback=lambda f: f)
-_stub("homeassistant.config_entries", ConfigEntry=_GenericBase)
+_stub(
+    "homeassistant.config_entries",
+    ConfigEntry=_GenericBase,
+    ConfigFlow=_GenericBase,
+    OptionsFlow=_GenericBase,
+)
 _stub("homeassistant.exceptions", ConfigEntryNotReady=Exception)
 _stub("homeassistant.components")
 _stub("homeassistant.components.energy", async_get_manager=MagicMock())
@@ -91,6 +96,7 @@ _stub("homeassistant.helpers.storage", Store=MagicMock())
 _stub("homeassistant.helpers.device_registry", DeviceInfo=MagicMock())
 _stub("homeassistant.helpers.entity_platform", AddEntitiesCallback=_SubscriptableMock())
 _stub("homeassistant.helpers.event", async_track_time_change=MagicMock())
+_stub("homeassistant.data_entry_flow", FlowResult=dict)
 _stub(
     "homeassistant.helpers.selector",
     EntitySelector=MagicMock(),
@@ -98,6 +104,7 @@ _stub(
     SelectSelector=MagicMock(),
     SelectSelectorConfig=MagicMock(),
     SelectSelectorMode=_SubscriptableMock(),
+    BooleanSelector=MagicMock(),
 )
 
 
