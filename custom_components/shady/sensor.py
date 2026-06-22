@@ -24,7 +24,6 @@ Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
 from __future__ import annotations
 
 import importlib.metadata
-import logging
 import re
 from datetime import timedelta
 
@@ -49,8 +48,6 @@ from shadylib import normalise_to_5min_day as _normalise_to_5min_day
 from shadylib import BucketModels as _BucketModels
 from shadylib import parse_dt as _parse_dt
 
-
-_LOGGER = logging.getLogger(__name__)
 
 # Read manifest.json once at import time to avoid blocking I/O inside the event loop.
 try:
