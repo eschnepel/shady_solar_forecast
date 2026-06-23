@@ -3,7 +3,7 @@
 On startup, checks whether the effective string sensors already have sufficient
 history (covering ``history_days``).  If not, fetches recorder statistics for all
 relevant sensors, computes the effective power for every missing 5-minute slot
-using shadylib.compute_effective_strings, and caches the result in HA Storage.
+using shadylib.compute_effective_slot, and caches the result in HA Storage.
 
 Cache schema (JSON-serialisable):
     {
@@ -44,7 +44,7 @@ from .const import (
 from .statistics import fetch_statistics
 from .units import to_wh_per_slot, detect_unit
 
-from shadylib import compute_effective_strings, filter_gap_successors
+from shadylib import compute_effective_slot, filter_gap_successors
 
 
 class _DiscardOnMigrationStore(Store):
@@ -81,7 +81,7 @@ def compute_config_hash(
 
     The hash covers:
     - the installed ``shadylib`` version (algorithm changes invalidate the cache)
-    - ``pv_sensors`` list (order matters – ``compute_effective_strings`` is index-based)
+    - ``pv_sensors`` list (order matters – ``compute_effective_slot`` is index-based)
     - ``import_sensors`` and ``export_sensors`` lists
 
     Returns the first ``_HASH_LENGTH`` hex characters of the digest.
@@ -320,10 +320,10 @@ class EffectiveHistoryStore:
             #   import_sensors: power entering BMS (grid draw, battery discharge)
             #
             # total_loss = max(0, pv_sum + net_import - net_export) — computed in shadylib
-            effective = compute_effective_strings(
+            effective = compute_effective_slot(
                 pv_vals,
-                net_import=_sum_val(import_sensors, slot_key),
-                net_export=_sum_val(export_sensors, slot_key),
+                net_import_wh=_sum_val(import_sensors, slot_key),
+                net_export_wh=_sum_val(export_sensors, slot_key),
             )
 
             for i, eid in enumerate(pv_sensors):
