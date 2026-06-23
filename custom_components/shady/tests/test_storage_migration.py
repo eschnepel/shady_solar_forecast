@@ -46,7 +46,7 @@ class TestComputeConfigHash:
         assert self._hash(["sensor.pv1"]) != self._hash(["sensor.pv2"])
 
     def test_pv_sensor_order_matters(self):
-        """Order matters because compute_effective_strings is index-based."""
+        """Order matters because compute_effective_slot is index-based."""
         assert self._hash(["sensor.pv1", "sensor.pv2"]) != self._hash(["sensor.pv2", "sensor.pv1"])
 
     def test_different_import_sensors_different_hash(self):

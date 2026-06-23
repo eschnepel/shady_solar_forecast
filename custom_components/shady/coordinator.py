@@ -66,7 +66,7 @@ from .units import (
 )
 from shadylib import apply_corrections as _shadylib_apply_corrections
 from shadylib import BucketModels
-from shadylib import compute_effective_strings
+from shadylib import compute_effective_slot
 from shadylib import normalise_em_to_5min, filter_gap_successors
 from shadylib.math_utils import aggregate_to_hours
 from shadylib import r, parse_dt
@@ -378,51 +378,6 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             filter_recorder_gaps=self._cfg(CONF_FILTER_RECORDER_GAPS, DEFAULT_FILTER_RECORDER_GAPS),
         )
 
-    def _compute_current_effective(
-        self,
-        pv_sensors: list[str],
-        pv_units: dict[str, str],
-    ) -> dict[str, float]:
-        """Compute effective power per string from current HA state values."""
-        import_sensors = self._import_sensors()
-        export_sensors = self._export_sensors()
-
-        def _state_val(entity_id: str | None) -> float:
-            if not entity_id:
-                return 0.0
-            state = self.hass.states.get(entity_id)
-            if state is None or state.state in ("unknown", "unavailable"):
-                return 0.0
-            try:
-                return float(state.state)
-            except (ValueError, TypeError):
-                return 0.0
-
-        pv_vals: list[float] = []
-        for eid in pv_sensors:
-            raw = _state_val(eid)
-            unit = pv_units.get(eid, "W")
-            # Normalise to Wh/slot for loss calculation
-            pv_vals.append(max(0.0, to_wh_per_slot_scalar(raw, unit)))
-
-        # BMS semantics (all sensors relative to the BMS):
-        #   export_sensors: power leaving the BMS (grid feed-in, battery charge) → reduces loss
-        #   import_sensors: power entering the BMS (grid draw, battery discharge) → increases loss
-        #
-        # total_loss = max(0, pv_sum + net_import - net_export) — computed inside shadylib
-        effective = compute_effective_strings(
-            pv_vals,
-            net_import=sum(_state_val(eid) for eid in import_sensors),
-            net_export=sum(_state_val(eid) for eid in export_sensors),
-        )
-
-        # Convert back to the PV sensor's native unit for display
-        result: dict[str, float] = {}
-        for i, eid in enumerate(pv_sensors):
-            unit = pv_units.get(eid, "W")
-            result[eid] = round(from_wh_per_slot(effective[i], unit), 4)
-        return result
-
     # ---- main update ----
 
     async def _async_update_data(self) -> CoordinatorData:
@@ -457,10 +412,51 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
         if pv_units:
             check_pv_unit_consistency(pv_units)
 
+        bms_units: dict[str, str] = {}
+        for eid in self._import_sensors() + self._export_sensors():
+            unit, _ = await self._cached_unit(eid)
+            bms_units[eid] = unit
+
         # --- compute current effective power per string (always, for sensors) ---
+        # Read and convert all sensor states to Wh/slot here; the calculation
+        # function itself is unit-agnostic and HA-state-agnostic.
         effective_string_values: dict[str, float] = {}
         if pv_sensors:
-            effective_string_values = self._compute_current_effective(pv_sensors, pv_units)
+
+            def _state_val(entity_id: str | None) -> float:
+                if not entity_id:
+                    return 0.0
+                state = self.hass.states.get(entity_id)
+                if state is None or state.state in ("unknown", "unavailable"):
+                    return 0.0
+                try:
+                    return float(state.state)
+                except (ValueError, TypeError):
+                    return 0.0
+
+            pv_wh = [
+                max(0.0, to_wh_per_slot_scalar(_state_val(eid), pv_units.get(eid, "W")))
+                for eid in pv_sensors
+            ]
+            net_import_wh = sum(
+                to_wh_per_slot_scalar(_state_val(eid), bms_units.get(eid, "W"))
+                for eid in self._import_sensors()
+            )
+            net_export_wh = sum(
+                to_wh_per_slot_scalar(_state_val(eid), bms_units.get(eid, "W"))
+                for eid in self._export_sensors()
+            )
+            effective_wh = compute_effective_slot(
+                pv_wh,
+                net_import_wh=net_import_wh,
+                net_export_wh=net_export_wh,
+            )
+
+            # Convert Wh/slot back to each sensor's native unit for display
+            effective_string_values = {
+                eid: round(from_wh_per_slot(effective_wh[i], pv_units.get(eid, "W")), 4)
+                for i, eid in enumerate(pv_sensors)
+            }
 
         # --- choose sensor source for correction model ---
         use_effective = self._use_effective() and bool(pv_sensors)
