@@ -158,14 +158,14 @@ class TestTomorrowAggregation:
 
 class TestCurtailmentFilter:
     def test_curtailed_readings_excluded_from_models(self):
-        """When half the training data is curtailed (< 5W), models should
+        """When half the training data is curtailed (< 1W), models should
         predict as if curtailment didn't happen."""
         fc_rows, pv_rows = [], []
         for d in range(60):
             ts = dt(10, 0) + timedelta(days=d)
             fc_rows.append({"start": ts, "mean": 400.0})
             # Alternate between curtailed and normal
-            pv = 1.0 if d % 2 == 0 else 200.0
+            pv = 0.5 if d % 2 == 0 else 200.0
             pv_rows.append({"start": ts, "mean": pv})
 
         models = build_bucket_models(fc_rows, pv_rows, "factor")

@@ -570,14 +570,14 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "shadylib", git = "https://github.com/eschnepel/shadylib.git?rev=v1.4.2" },
+    { name = "shadylib", git = "https://github.com/eschnepel/shadylib.git?rev=v1.4.3" },
     { name = "voluptuous" },
 ]
 
 [[package]]
 name = "shadylib"
-version = "1.4.2"
-source = { git = "https://github.com/eschnepel/shadylib.git?rev=v1.4.2#9a695e55718e4f6d543e79fa362cc59bbc17f374" }
+version = "1.4.3"
+source = { git = "https://github.com/eschnepel/shadylib.git?rev=v1.4.3#bc13976367c3f302b90a20249c5ed02f96284fc8" }
 
 [[package]]
 name = "tomli"
