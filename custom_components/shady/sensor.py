@@ -15,6 +15,11 @@ Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
     solar_forecast_hourly_<slug>     – corrected Wh current slot for that string
                                        attr 'forecast': today's 288 × 5-min slots {ts: Wh}
                                        attr 'pv_sensor': source entity_id
+    solar_<slug>_pv_eff              – effective Wh for the current slot (loss-adjusted)
+                                       attr 'pv_sensor': source entity_id
+
+  All sensors report in Wh regardless of the fc_sensor's native unit.
+  Current-slot sensors report Wh/5-min-slot; today/remaining report total Wh.
 
   All forecast attributes contain exactly 288 slots covering 00:00–23:55 of the
   relevant day.  Timestamps are snapped to 5-minute boundaries; night-time slots
@@ -24,7 +29,6 @@ Published sensors (entity IDs are prefixed with the device name "shady_" by HA):
 from __future__ import annotations
 
 import importlib.metadata
-import logging
 import re
 from datetime import timedelta
 
@@ -49,8 +53,6 @@ from shadylib import normalise_to_5min_day as _normalise_to_5min_day
 from shadylib import BucketModels as _BucketModels
 from shadylib import parse_dt as _parse_dt
 
-
-_LOGGER = logging.getLogger(__name__)
 
 # Read manifest.json once at import time to avoid blocking I/O inside the event loop.
 try:
@@ -126,35 +128,15 @@ class _Base(CoordinatorEntity[ShadyCoordinator], SensorEntity):
         self._sync_unit_attrs()
 
     def _sync_unit_attrs(self) -> None:
-        """Sync unit and state_class from coordinator data (fc_sensor metadata)."""
-        from homeassistant.const import UnitOfPower
+        """Set fixed Wh unit and energy device class for all forecast sensors.
 
-        fc_unit = self._data.fc_unit
-        fc_sc = self._data.fc_state_class
-
-        # device_class
-        if fc_unit in ("W", "kW"):
-            self._attr_device_class = SensorDeviceClass.POWER
-        else:
-            self._attr_device_class = SensorDeviceClass.ENERGY
-
-        # state_class
-        sc_map = {
-            "measurement": SensorStateClass.MEASUREMENT,
-            "total": SensorStateClass.TOTAL,
-            "total_increasing": SensorStateClass.TOTAL_INCREASING,
-        }
-        self._attr_state_class = sc_map.get(fc_sc, SensorStateClass.TOTAL_INCREASING)
-
-        # native_unit_of_measurement
-        unit_map = {
-            "W": UnitOfPower.WATT,
-            "kW": UnitOfPower.KILO_WATT,
-            "Wh": UnitOfEnergy.WATT_HOUR,
-            "kWh": UnitOfEnergy.KILO_WATT_HOUR,
-            "MWh": UnitOfEnergy.MEGA_WATT_HOUR,
-        }
-        self._attr_native_unit_of_measurement = unit_map.get(fc_unit, UnitOfEnergy.WATT_HOUR)
+        All Shady output sensors report in Wh/slot (current-slot sensors) or
+        Wh (today_total, remaining).  The fc_sensor unit is kept in
+        CoordinatorData for diagnostics but no longer drives sensor metadata.
+        """
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfEnergy.WATT_HOUR
 
     def _handle_coordinator_update(self) -> None:
         self._sync_unit_attrs()
@@ -344,8 +326,7 @@ class EffectiveStringSensor(_Base):
     """Effective (loss-adjusted) power for a single PV string.
 
     Entity ID pattern: sensor.shady_<slug>_pv_eff
-    Unit and device_class are derived from the FC sensor (same as all _Base sensors).
-    State class is never total_increasing; measurement or total only.
+    Reports in Wh/slot (energy device class, measurement state class).
     """
 
     _attr_icon = "mdi:solar-panel-large"
@@ -360,15 +341,6 @@ class EffectiveStringSensor(_Base):
         super().__init__(coordinator, entry, f"{slug}_pv_eff")
         self._pv_entity_id = pv_entity_id
         self._attr_name = f"Solar String {slug} Effective"
-
-    def _sync_unit_attrs(self) -> None:
-        """Override: derive unit from fc_sensor but force non-total_increasing state_class."""
-        super()._sync_unit_attrs()
-        # Effective power is a measurement, never a running total
-        from homeassistant.components.sensor import SensorStateClass
-
-        if self._attr_state_class == SensorStateClass.TOTAL_INCREASING:
-            self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
     def native_value(self) -> float | None:

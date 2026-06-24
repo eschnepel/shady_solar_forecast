@@ -6,16 +6,20 @@ Data pipeline:
 2. fetch_statistics()           → recorder 5-min means for fc + pv sensors
 3. build_bucket_models()        → per-string per-5-min-bucket WLS models
 4. _apply_corrections()         → corrected forecast per string + combined
-5. Split today (native res.) / tomorrow (hourly aggregation)
-6. Compute today_total + remaining directly from 5-min today slots
+5. Split today (5-min slots) / tomorrow (hourly aggregation)
+6. Compute today_total + remaining as plain Wh sums
+
+All CoordinatorData outputs are in Wh regardless of the fc_sensor's native unit.
+fc_unit and fc_state_class are retained for diagnostics only.
 
 CoordinatorData fields:
-  raw_forecast          : {ISO-ts: Wh}
-  forecast_today        : {ISO-ts: Wh}  – native provider resolution (5-min for hourly providers)
-  forecast_tomorrow     : {ISO-ts: Wh}  – aggregated to full hours
-  string_forecasts      : {entity_id: {ISO-ts: Wh}}
-  today_total           : float (Wh)
-  remaining             : float (Wh)  – sum of slots whose start >= now (5-min precision)
+  raw_forecast          : {ISO-ts: Wh/slot}  – normalised EM forecast
+  forecast_today        : {ISO-ts: Wh/slot}  – 5-min slots for today
+  forecast_tomorrow     : {ISO-ts: Wh/slot}  – aggregated to full hours
+  string_forecasts      : {entity_id: {ISO-ts: Wh/slot}}
+  today_total           : float (Wh)  – sum of all today slots
+  remaining             : float (Wh)  – sum of slots whose start >= now
+  effective_string_values : {entity_id: float (Wh/slot)}  – loss-adjusted current slot
   string_bucket_models  : {entity_id: BucketModels}  – fitted bucket models per string
   bucket_models_timestamp : str | None  – ISO-8601 UTC of last bucket model fit
 """
@@ -60,9 +64,7 @@ from .units import (
     check_pv_unit_consistency,
     detect_unit,
     to_wh_per_slot_scalar,
-    from_wh_per_slot,
     to_wh_per_slot,
-    wh_to_unit,
 )
 from shadylib import apply_corrections as _shadylib_apply_corrections
 from shadylib import BucketModels
@@ -106,8 +108,8 @@ _FALLBACK_INTERVAL = timedelta(hours=1)
 # Temporary debug helpers – disabled by default
 # ---------------------------------------------
 _DEBUG_WINDOW_LOGGING_ENABLED = True
-_DEBUG_WINDOW_START = (10, 50)  # (hour, minute) inclusive
-_DEBUG_WINDOW_END = (12, 10)  # (hour, minute) inclusive
+_DEBUG_WINDOW_START = (10, 55)  # (hour, minute) inclusive
+_DEBUG_WINDOW_END = (11, 5)  # (hour, minute) inclusive
 
 
 def _rows_to_slots(rows: list[dict]) -> dict[str, float]:
@@ -452,20 +454,16 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 net_export_wh=net_export_wh,
             )
 
-            # Convert Wh/slot back to each sensor's native unit for display
+            # Keep effective values in Wh/slot – all output sensors use Wh.
             effective_string_values = {
-                eid: round(from_wh_per_slot(effective_wh[i], pv_units.get(eid, "W")), 4)
-                for i, eid in enumerate(pv_sensors)
+                eid: round(effective_wh[i], 4) for i, eid in enumerate(pv_sensors)
             }
 
         # --- choose sensor source for correction model ---
         use_effective = self._use_effective() and bool(pv_sensors)
 
-        # Normalise EM forecast to 5-min slots here so that raw_out uses the
-        # same per-slot scale as corrected/forecast_today.  Without this,
-        # raw_out would be built from the original EM intervals (e.g. 60-min
-        # slots) and wh_to_unit would over-scale by the ratio of the EM
-        # interval to 5 min (factor 12 for hourly providers with unit "W").
+        # Normalise EM forecast to 5-min slots so raw_forecast uses the same
+        # Wh/slot scale as forecast_today.  All output stays in Wh/slot.
         raw_normalised_for_output = normalise_em_to_5min(raw)
         _debug_window_slots("1b_raw_normalised_for_output", raw_normalised_for_output, "Wh/slot")
 
@@ -490,42 +488,30 @@ class ShadyCoordinator(DataUpdateCoordinator[CoordinatorData]):
             {ts: wh for ts, wh in corrected.items() if tomorrow_start <= parse_dt(ts) < day_after}
         )
 
-        # Convert internal Wh slots to fc_sensor output unit.
-        # raw_out uses the 5-min-normalised raw so it is on the same per-slot
-        # scale as forecast_today_out (both Wh/5-min before unit conversion).
-        forecast_today_out = wh_to_unit(forecast_today, fc_unit)
-        forecast_tomorrow_out = wh_to_unit(forecast_tomorrow, fc_unit)
-        string_forecasts_out = {
-            eid: wh_to_unit(slots, fc_unit) for eid, slots in string_forecasts.items()
-        }
-        raw_out = wh_to_unit(raw_normalised_for_output, fc_unit)
+        # All output slots stay in Wh/slot – sensors are fixed at Wh.
+        # No unit conversion needed; fc_unit is only kept for diagnostics.
+        _debug_window_slots("5a_raw_out_wh", raw_normalised_for_output, "Wh/slot")
+        _debug_window_slots("5b_forecast_today_out_wh", forecast_today, "Wh/slot")
+        for eid, sf_slots in string_forecasts.items():
+            _debug_window_slots(f"5c_string_out[{eid}]_wh", sf_slots, "Wh/slot")
 
-        _debug_window_slots("5a_raw_out_unit", raw_out, fc_unit)
-        _debug_window_slots("5b_forecast_today_out_unit", forecast_today_out, fc_unit)
-        for eid, sf_slots in string_forecasts_out.items():
-            _debug_window_slots(f"5c_string_out[{eid}]_unit", sf_slots, fc_unit)
-
-        # Sum in Wh first (forecast_today holds Wh/slot), then convert the
-        # scalar to fc_unit.  Summing forecast_today_out (already in W/slot)
-        # would give a meaningless W-sum scaled by the number of slots.
+        # today_total and remaining are simple Wh sums over 5-min slots.
         today_total_wh = sum(forecast_today.values())
         remaining_wh = sum(v for ts, v in forecast_today.items() if parse_dt(ts) >= now)
-        today_total = r(from_wh_per_slot(today_total_wh, fc_unit))
-        remaining = r(from_wh_per_slot(remaining_wh, fc_unit))
+        today_total = r(today_total_wh)
+        remaining = r(remaining_wh)
 
         _debug_window_message(
-            "[DEBUG 6_totals] today_total=%.4f %s  remaining=%.4f %s",
+            "[DEBUG 6_totals] today_total=%.4f Wh  remaining=%.4f Wh",
             today_total,
-            fc_unit,
             remaining,
-            fc_unit,
         )
 
         return CoordinatorData(
-            raw_forecast=raw_out,
-            forecast_today=forecast_today_out,
-            forecast_tomorrow=forecast_tomorrow_out,
-            string_forecasts=string_forecasts_out,
+            raw_forecast=raw_normalised_for_output,
+            forecast_today=forecast_today,
+            forecast_tomorrow=forecast_tomorrow,
+            string_forecasts=string_forecasts,
             today_total=today_total,
             remaining=remaining,
             fc_unit=fc_unit,
